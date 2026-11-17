@@ -32,6 +32,12 @@ export default function ScriptWorkspacePage() {
   const [ocrError, setOcrError] = useState<string>("");
 
   useEffect(() => {
+    if (state.assessment.questions.length === 0) {
+      actions.ensureDefaultQuestions();
+    }
+  }, [state.assessment.questions.length, actions]);
+
+  useEffect(() => {
     if (!script) return;
     const imgs = orderedImages(script);
     if (imgs.length && (!selectedImageId || !imgs.some((i) => i.id === selectedImageId))) {
@@ -64,6 +70,94 @@ export default function ScriptWorkspacePage() {
   const scriptRegions = state.regions.filter((r) => r.scriptId === script.id);
   const pageRegions = scriptRegions.filter((r) => r.imageId === currentImg?.id);
   const activeRegion = scriptRegions.find((r) => r.id === activeRegionId) || null;
+  const isSelectedMapped = scriptRegions.some((r) => r.questionId === selectedQuestionId);
+  const selectedRegion = scriptRegions.find((r) => r.questionId === selectedQuestionId) || null;
+
+  // Keep selectedQuestionId aligned to an existing question
+  useEffect(() => {
+    if (state.assessment.questions.length > 0) {
+      const exists = state.assessment.questions.some((q) => q.id === selectedQuestionId);
+      if (!exists) {
+        const firstUnmapped = state.assessment.questions.find((q) => !scriptRegions.some((r) => r.questionId === q.id));
+        setSelectedQuestionId(firstUnmapped?.id ?? state.assessment.questions[0].id);
+      }
+    }
+  }, [state.assessment.questions, selectedQuestionId, scriptRegions]);
+
+  function handleStartEditRegion(r: { id: string; imageId: string; questionId: string; bbox: Rect }) {
+    setActiveRegionId(r.id);
+    setSelectedQuestionId(r.questionId);
+    const im = imgs.find((x) => x.id === r.imageId);
+    if (im && im.id !== currentImg.id) {
+      setSelectedImageId(im.id);
+    }
+    setRegionCrop({
+      unit: "%",
+      x: r.bbox.x,
+      y: r.bbox.y,
+      width: r.bbox.width,
+      height: r.bbox.height,
+    });
+  }
+
+  function handleCancelEdit() {
+    setActiveRegionId(null);
+    const firstUnmapped = state.assessment.questions.find((q) => !scriptRegions.some((r) => r.questionId === q.id));
+    if (firstUnmapped) {
+      setSelectedQuestionId(firstUnmapped.id);
+    }
+    setRegionCrop(DEFAULT_REGION_CROP);
+  }
+
+  function handleDeleteActiveRegion(regId: string, qid: string) {
+    actions.deleteRegion(regId);
+    setActiveRegionId(null);
+    setSelectedQuestionId(qid);
+    setRegionCrop(DEFAULT_REGION_CROP);
+  }
+
+  function handleAssignOrUpdate() {
+    if (!script || !currentImg) return;
+    if (activeRegion) {
+      actions.updateRegionBbox(activeRegion.id, toRect(regionCrop));
+      setActiveRegionId(null);
+      const nextUnmapped = state.assessment.questions.find(
+        (q) => q.id !== activeRegion.questionId && !scriptRegions.some((r) => r.questionId === q.id)
+      );
+      if (nextUnmapped) {
+        setSelectedQuestionId(nextUnmapped.id);
+      }
+      setRegionCrop(DEFAULT_REGION_CROP);
+    } else {
+      const targetQid = selectedQuestionId;
+      actions.addRegion(script.id, currentImg.id, targetQid, toRect(regionCrop));
+
+      // Auto-advance to the next unmapped question
+      const remaining = state.assessment.questions.filter(
+        (q) => q.id !== targetQid && !scriptRegions.some((r) => r.questionId === q.id)
+      );
+      if (remaining.length > 0) {
+        setSelectedQuestionId(remaining[0].id);
+        setActiveRegionId(null);
+        // Cascade crop down slightly for quick next selection
+        setRegionCrop((prev) => {
+          const p = prev as PercentCrop;
+          const nextY = Math.min(76, (p.y ?? 17) + (p.height ?? 18) + 2);
+          return { ...p, y: nextY };
+        });
+      } else {
+        setActiveRegionId(null);
+      }
+    }
+  }
+
+  function handleAddQuestion() {
+    const nextIdx = state.assessment.questions.length + 1;
+    const newId = `q${nextIdx}`;
+    actions.addQuestion();
+    setSelectedQuestionId(newId);
+    setActiveRegionId(null);
+  }
 
   function movePage(index: number, dir: -1 | 1) {
     const next = [...imgs];
@@ -567,18 +661,13 @@ export default function ScriptWorkspacePage() {
                       image={currentImg}
                       overlays={pageRegions.map((r) => {
                         const idx = qIndex(r.questionId);
-                        const totalParts = scriptRegions.filter((x) => x.questionId === r.questionId).length;
                         return {
                           id: r.id,
                           rect: r.bbox,
                           color: QUESTION_COLORS[idx % QUESTION_COLORS.length],
                           active: r.id === activeRegionId,
-                          label: `${qNum(r.questionId)}${totalParts > 1 ? ` (${r.sequenceOrder}/${totalParts})` : ""}`,
-                          onClick: () => {
-                            setActiveRegionId(r.id);
-                            setSelectedQuestionId(r.questionId);
-                            setRegionCrop({ unit: "%", x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height });
-                          },
+                          label: qNum(r.questionId),
+                          onClick: () => handleStartEditRegion(r),
                         };
                       })}
                     />
@@ -586,7 +675,7 @@ export default function ScriptWorkspacePage() {
                 </div>
               </div>
               <p className="text-center text-xs text-slate-500">
-                Tip: Click an existing box or drag new crop handles to adjust boundaries. Select a question and save.
+                Tip: Click an existing box or drag handles to frame a question's answer. Click Assign or Save.
               </p>
             </div>
           </Card>
@@ -594,9 +683,9 @@ export default function ScriptWorkspacePage() {
           <div className="w-full lg:w-80 xl:w-88 shrink-0 lg:sticky lg:top-6 space-y-4">
             <Card>
               <CardHeader
-                title={activeRegion ? `Edit ${qNum(activeRegion.questionId)} crop` : "Assign region"}
+                title={activeRegion ? `Edit ${qNum(activeRegion.questionId)} crop` : isSelectedMapped ? `Edit ${qNum(selectedQuestionId)} crop` : `Assign ${qNum(selectedQuestionId)}`}
                 right={
-                  <Button size="sm" onClick={() => actions.addQuestion()}>
+                  <Button size="sm" onClick={handleAddQuestion}>
                     + Add Q
                   </Button>
                 }
@@ -604,22 +693,47 @@ export default function ScriptWorkspacePage() {
               <div className="space-y-3 p-5">
                 <div className="grid grid-cols-2 gap-1.5">
                   {state.assessment.questions.map((q, i) => {
-                    const existingParts = scriptRegions.filter((r) => r.questionId === q.id).length;
-                    const active = selectedQuestionId === q.id;
+                    const reg = scriptRegions.find((r) => r.questionId === q.id);
+                    const isMapped = !!reg;
+                    const isSelected = selectedQuestionId === q.id;
+                    const isEditing = activeRegion?.questionId === q.id;
+                    const color = QUESTION_COLORS[i % QUESTION_COLORS.length];
+
                     return (
                       <button
                         key={q.id}
                         type="button"
-                        onClick={() => setSelectedQuestionId(q.id)}
-                        className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition cursor-pointer ${
-                          active ? "border-indigo-600 bg-indigo-50 text-indigo-900" : "border-slate-200 hover:bg-slate-50"
+                        onClick={() => {
+                          setSelectedQuestionId(q.id);
+                          if (reg) {
+                            handleStartEditRegion(reg);
+                          } else {
+                            setActiveRegionId(null);
+                          }
+                        }}
+                        className={`relative flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs font-medium transition cursor-pointer ${
+                          isEditing
+                            ? "border-amber-400 bg-amber-50/90 text-amber-950 ring-2 ring-amber-300 shadow-xs"
+                            : isSelected && !isMapped
+                            ? "border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-200 shadow-xs"
+                            : isMapped
+                            ? "border-emerald-200 bg-emerald-50/40 text-emerald-950 hover:bg-emerald-50"
+                            : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
                         }`}
                       >
                         <span className="flex items-center gap-1.5">
-                          <span className="h-2.5 w-2.5 rounded-full" style={{ background: QUESTION_COLORS[i % QUESTION_COLORS.length] }} />
+                          <span className="size-2.5 rounded-full shrink-0" style={{ background: color }} />
                           <span className="font-bold">{q.number}</span>
                         </span>
-                        <span className="text-[11px] text-slate-400">{existingParts || "—"}</span>
+                        <span className="text-[11px] font-medium">
+                          {isMapped ? (
+                            <span className="inline-flex items-center gap-0.5 text-emerald-700 font-semibold text-[10px]">
+                              <span>✓</span> Mapped
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Ready</span>
+                          )}
+                        </span>
                       </button>
                     );
                   })}
@@ -627,17 +741,14 @@ export default function ScriptWorkspacePage() {
 
                 {activeRegion ? (
                   <div className="space-y-2 pt-1">
-                    <div className="rounded-lg bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-900 flex items-center justify-between">
-                      <span>Adjusting <strong>{qNum(activeRegion.questionId)}</strong></span>
-                      <span className="text-[10px] text-indigo-600">Drag handles to resize</span>
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-900 flex items-center justify-between">
+                      <span>Adjusting crop for <strong>{qNum(activeRegion.questionId)}</strong></span>
+                      <span className="text-[10px] text-amber-700">Drag handles to resize</span>
                     </div>
                     <Button
                       variant="primary"
                       className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
-                      onClick={() => {
-                        actions.updateRegionBbox(activeRegion.id, toRect(regionCrop));
-                        setActiveRegionId(null);
-                      }}
+                      onClick={handleAssignOrUpdate}
                     >
                       ✓ Save updated crop for {qNum(activeRegion.questionId)}
                     </Button>
@@ -646,10 +757,7 @@ export default function ScriptWorkspacePage() {
                         variant="ghost"
                         size="sm"
                         className="flex-1 justify-center text-xs text-slate-600 hover:bg-slate-100"
-                        onClick={() => {
-                          setActiveRegionId(null);
-                          setRegionCrop(DEFAULT_REGION_CROP);
-                        }}
+                        onClick={handleCancelEdit}
                       >
                         Cancel
                       </Button>
@@ -657,109 +765,120 @@ export default function ScriptWorkspacePage() {
                         variant="ghost"
                         size="sm"
                         className="justify-center text-xs text-rose-600 hover:bg-rose-50"
-                        onClick={() => {
-                          actions.deleteRegion(activeRegion.id);
-                          setActiveRegionId(null);
-                        }}
+                        onClick={() => handleDeleteActiveRegion(activeRegion.id, activeRegion.questionId)}
                       >
                         Delete region
                       </Button>
                     </div>
                   </div>
+                ) : isSelectedMapped && selectedRegion ? (
+                  <div className="space-y-2 pt-1">
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-900 flex items-center justify-between">
+                      <span><strong>{qNum(selectedQuestionId)}</strong> is already mapped</span>
+                      <span className="text-[10px] text-emerald-700">1 question per map</span>
+                    </div>
+                    <Button
+                      variant="primary"
+                      className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
+                      onClick={() => handleStartEditRegion(selectedRegion)}
+                    >
+                      ✎ Edit {qNum(selectedQuestionId)} crop boundaries
+                    </Button>
+                  </div>
                 ) : (
-                  <Button
-                    variant="primary"
-                    className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
-                    onClick={() => actions.addRegion(script.id, currentImg.id, selectedQuestionId, toRect(regionCrop))}
-                  >
-                    + Assign to {qNum(selectedQuestionId)}
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      variant="primary"
+                      className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
+                      onClick={handleAssignOrUpdate}
+                    >
+                      + Assign to {qNum(selectedQuestionId)}
+                    </Button>
+                    {scriptRegions.length > 0 && scriptRegions.length === state.assessment.questions.length && (
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-center text-xs text-emerald-800">
+                        ✓ All {state.assessment.questions.length} questions mapped! You can now proceed to extract & review.
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </Card>
 
             <Card>
-              <CardHeader title={`Mapped regions (${scriptRegions.length})`} />
+              <CardHeader
+                title={`Mapped regions (${scriptRegions.length})`}
+                right={
+                  scriptRegions.length > 0 && (
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      {scriptRegions.length} of {state.assessment.questions.length} mapped
+                    </span>
+                  )
+                }
+              />
               <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto">
-                {state.assessment.questions.map((q) => {
-                  const regs = scriptRegions
-                    .filter((r) => r.questionId === q.id)
-                    .sort((a, b) => a.sequenceOrder - b.sequenceOrder);
-                  if (regs.length === 0) return null;
-                  return (
-                    <div key={q.id} className="p-3.5">
-                      <div className="flex items-center justify-between text-xs font-semibold text-slate-800">
-                        <span>{q.number}</span>
-                        {regs.length > 1 && <Badge tone="indigo">{regs.length} parts</Badge>}
+                {scriptRegions.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-500 space-y-1">
+                    <p className="font-semibold text-slate-700">No regions mapped yet</p>
+                    <p>Frame the student's answer on the script and click "+ Assign".</p>
+                  </div>
+                ) : (
+                  state.assessment.questions.map((q, i) => {
+                    const reg = scriptRegions.find((r) => r.questionId === q.id);
+                    if (!reg) return null;
+                    const im = imgs.find((x) => x.id === reg.imageId);
+                    const isEditing = activeRegion?.id === reg.id;
+                    const color = QUESTION_COLORS[i % QUESTION_COLORS.length];
+
+                    return (
+                      <div key={q.id} className={`p-3 transition ${isEditing ? "bg-amber-50/60" : "hover:bg-slate-50/50"}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="size-2.5 rounded-full shrink-0" style={{ background: color }} />
+                            <span className="font-bold text-xs text-slate-800">{q.number}</span>
+                            <span className="text-[11px] text-slate-500">Page {im?.pageNumber ?? 1}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditRegion(reg)}
+                              className={`rounded px-2 py-0.5 text-[11px] font-semibold transition cursor-pointer border ${
+                                isEditing
+                                  ? "bg-amber-100 text-amber-900 border-amber-300"
+                                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200"
+                              }`}
+                              title="Click to adjust crop handles on image"
+                            >
+                              ✎ Edit crop
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                actions.deleteRegion(reg.id);
+                                if (activeRegionId === reg.id) setActiveRegionId(null);
+                                setSelectedQuestionId(q.id);
+                              }}
+                              className="rounded px-1.5 py-0.5 text-xs text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              title="Remove mapping"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                        {im && (
+                          <div
+                            onClick={() => handleStartEditRegion(reg)}
+                            className={`mt-2 overflow-hidden rounded border bg-white cursor-pointer max-h-24 transition ${
+                              isEditing ? "border-amber-400 ring-2 ring-amber-300/60" : "border-slate-200 hover:border-indigo-400"
+                            }`}
+                            title="Click to edit this crop on the script"
+                          >
+                            <RegionCrop image={im} rect={reg.bbox} />
+                          </div>
+                        )}
                       </div>
-                      <ul className="mt-2 space-y-2">
-                        {regs.map((r) => {
-                          const im = imgs.find((i) => i.id === r.imageId);
-                          return (
-                            <li key={r.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium text-slate-700">
-                                  Part {r.sequenceOrder} · Page {im?.pageNumber ?? "?"}
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (im && im.id !== currentImg.id) setSelectedImageId(im.id);
-                                      setActiveRegionId(r.id);
-                                      setSelectedQuestionId(r.questionId);
-                                      setRegionCrop({ unit: "%", x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height });
-                                    }}
-                                    className="rounded px-2 py-0.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer"
-                                    title="Click to adjust crop handles on image"
-                                  >
-                                    ✎ Edit crop
-                                  </button>
-                                  <select
-                                    aria-label="Reassign question"
-                                    value={r.questionId}
-                                    onChange={(e) => actions.reassignRegion(r.id, e.target.value)}
-                                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px]"
-                                  >
-                                    {state.assessment.questions.map((qq) => (
-                                      <option key={qq.id} value={qq.id}>
-                                        {qq.number}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      actions.deleteRegion(r.id);
-                                      if (activeRegionId === r.id) setActiveRegionId(null);
-                                    }}
-                                    className="rounded px-1 text-rose-600 hover:bg-rose-50 cursor-pointer"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              </div>
-                              {im && (
-                                <div
-                                  onClick={() => {
-                                    if (im && im.id !== currentImg.id) setSelectedImageId(im.id);
-                                    setActiveRegionId(r.id);
-                                    setSelectedQuestionId(r.questionId);
-                                    setRegionCrop({ unit: "%", x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height });
-                                  }}
-                                  className="mt-1.5 overflow-hidden rounded border border-slate-200 bg-white cursor-pointer hover:border-indigo-400 transition"
-                                  title="Click to edit this crop on the script"
-                                >
-                                  <RegionCrop image={im} rect={r.bbox} />
-                                </div>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </Card>
           </div>

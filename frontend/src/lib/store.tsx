@@ -44,6 +44,19 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       mutate((d) => Object.assign(d, buildSeed()));
     },
 
+    ensureDefaultQuestions: () =>
+      mutate((d) => {
+        if (!d.assessment.questions || d.assessment.questions.length === 0) {
+          d.assessment.questions = [
+            { id: "q1", number: "Q1", prompt: "Question 1", maxMarks: 5 },
+            { id: "q2", number: "Q2", prompt: "Question 2", maxMarks: 5 },
+            { id: "q3", number: "Q3", prompt: "Question 3", maxMarks: 5 },
+            { id: "q4", number: "Q4", prompt: "Question 4", maxMarks: 5 },
+          ];
+          audit(d, "ASSESSMENT", "Initialized standard questions Q1-Q4");
+        }
+      }),
+
     addQuestion: () =>
       mutate((d) => {
         const nextIdx = d.assessment.questions.length + 1;
@@ -277,10 +290,30 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     addRegion: (scriptId: string, imageId: string, questionId: string, bbox: Rect) =>
       mutate((d) => {
-        const seq = d.regions.filter((r) => r.scriptId === scriptId && r.questionId === questionId).length + 1;
-        d.regions.push({ id: uid("reg"), scriptId, imageId, questionId, sequenceOrder: seq, bbox });
-        d.scripts.find((s) => s.id === scriptId)!.mappingConfirmed = false;
-        audit(d, "MAP", `${code(d, scriptId)}: region mapped to ${qnum(d, questionId)}${seq > 1 ? ` (continuation part ${seq})` : ""}`);
+        // Ensure question exists in assessment
+        if (!d.assessment.questions.some((q) => q.id === questionId)) {
+          const num = questionId.toUpperCase().startsWith("Q") ? questionId.toUpperCase() : `Q${d.assessment.questions.length + 1}`;
+          d.assessment.questions.push({
+            id: questionId,
+            number: num,
+            prompt: `Question ${num.replace(/\D/g, "") || d.assessment.questions.length + 1}`,
+            maxMarks: 5,
+          });
+        }
+
+        // Only one region per question per script: if already mapped, update it
+        const existing = d.regions.find((r) => r.scriptId === scriptId && r.questionId === questionId);
+        if (existing) {
+          existing.imageId = imageId;
+          existing.bbox = bbox;
+          existing.sequenceOrder = 1;
+          audit(d, "MAP", `${code(d, scriptId)}: updated crop boundaries for ${qnum(d, questionId)}`);
+        } else {
+          d.regions.push({ id: uid("reg"), scriptId, imageId, questionId, sequenceOrder: 1, bbox });
+          audit(d, "MAP", `${code(d, scriptId)}: region mapped to ${qnum(d, questionId)}`);
+        }
+        const s = d.scripts.find((x) => x.id === scriptId);
+        if (s) s.mappingConfirmed = false;
       }),
 
     updateRegionBbox: (regionId: string, bbox: Rect) =>
@@ -295,16 +328,18 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     reassignRegion: (regionId: string, questionId: string) =>
       mutate((d) => {
-        const r = d.regions.find((x) => x.id === regionId)!;
-        const old = r.questionId;
+        const r = d.regions.find((x) => x.id === regionId);
+        if (!r) return;
+        // If the target question already has a region on this script, remove it to enforce 1 question per map
+        const existingForTarget = d.regions.find((x) => x.scriptId === r.scriptId && x.questionId === questionId && x.id !== regionId);
+        if (existingForTarget) {
+          d.regions = d.regions.filter((x) => x.id !== existingForTarget.id);
+        }
         r.questionId = questionId;
-        r.sequenceOrder = d.regions.filter((x) => x.scriptId === r.scriptId && x.questionId === questionId && x.id !== r.id).length + 1;
-        d.regions
-          .filter((x) => x.scriptId === r.scriptId && x.questionId === old)
-          .sort((a, b) => a.sequenceOrder - b.sequenceOrder)
-          .forEach((x, i) => (x.sequenceOrder = i + 1));
-        d.scripts.find((s) => s.id === r.scriptId)!.mappingConfirmed = false;
-        audit(d, "MAP", `${code(d, r.scriptId)}: corrected mapping ${qnum(d, old)} -> ${qnum(d, questionId)}`);
+        r.sequenceOrder = 1;
+        const s = d.scripts.find((x) => x.id === r.scriptId);
+        if (s) s.mappingConfirmed = false;
+        audit(d, "MAP", `${code(d, r.scriptId)}: corrected mapping to ${qnum(d, questionId)}`);
       }),
 
     moveRegion: (regionId: string, dir: -1 | 1) =>
@@ -679,6 +714,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
         if (!s.rubrics) s.rubrics = [];
+        if (!s.assessment.questions || s.assessment.questions.length === 0) {
+          s.assessment.questions = [
+            { id: "q1", number: "Q1", prompt: "Question 1", maxMarks: 5 },
+            { id: "q2", number: "Q2", prompt: "Question 2", maxMarks: 5 },
+            { id: "q3", number: "Q3", prompt: "Question 3", maxMarks: 5 },
+            { id: "q4", number: "Q4", prompt: "Question 4", maxMarks: 5 },
+          ];
+        }
         if (!s.assessment.course || s.assessment.course === "CS2042 Operating Systems") {
           s.assessment.course = "Object Oriented Programming";
         }
