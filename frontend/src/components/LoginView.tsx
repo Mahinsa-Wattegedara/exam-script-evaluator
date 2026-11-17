@@ -1,13 +1,16 @@
 "use client";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import type { UserRole } from "@/lib/types";
 
 interface LoginViewProps {
   onBack?: () => void;
+  onSuccess?: () => void;
 }
 
-export function LoginView({ onBack }: LoginViewProps) {
+export function LoginView({ onBack, onSuccess }: LoginViewProps) {
+  const router = useRouter();
   const { login, register } = useStore();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [role, setRole] = useState<UserRole>("TEACHER");
@@ -45,6 +48,12 @@ export function LoginView({ onBack }: LoginViewProps) {
             });
       if (!res.ok) {
         setError(res.error || "Email or password is incorrect. Check your details and try again.");
+      } else {
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          router.push("/");
+        }
       }
     } catch {
       setError("Could not reach authentication service. Please try again.");

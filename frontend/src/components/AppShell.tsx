@@ -53,12 +53,24 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     if (path === "/login" || searchParams.get("view") === "login") {
-      return <LoginView onBack={() => router.push("/")} />;
+      return <LoginView onBack={() => router.push("/")} onSuccess={() => router.push("/")} />;
     }
     if (path === "/") {
       return <LandingPage onLogin={() => router.push("/login")} />;
     }
-    return <LoginView onBack={() => router.push("/")} />;
+    return <LoginView onBack={() => router.push("/")} onSuccess={() => router.push("/")} />;
+  }
+
+  // If already authenticated and navigating to /login, redirect straight to workspace home
+  if (path === "/login") {
+    if (typeof window !== "undefined") {
+      router.replace("/");
+    }
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f6fa]">
+        <div className="text-sm font-semibold text-slate-500">Redirecting to workspace...</div>
+      </div>
+    );
   }
 
   const isTeacher = user.role === "TEACHER";
@@ -79,7 +91,10 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       ? "TR"
       : "DS";
 
-  const studentOnTeacherRoute = !isTeacher && path !== "/";
+  // Explicit teacher-only routes. Students accessing these will see the restricted banner.
+  const TEACHER_ONLY_ROUTES = ["/upload", "/scripts", "/rubric", "/review", "/contract"];
+  const studentOnTeacherRoute =
+    !isTeacher && TEACHER_ONLY_ROUTES.some((r) => path === r || path.startsWith(`${r}/`));
 
   return (
     <div className="flex min-h-screen bg-[#f5f6fa]">

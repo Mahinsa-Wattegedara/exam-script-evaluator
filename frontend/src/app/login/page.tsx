@@ -14,5 +14,5 @@ export default function LoginPage() {
     }
   }, [user, router]);
 
-  return <LoginView onBack={() => router.push("/")} />;
+  return <LoginView onBack={() => router.push("/")} onSuccess={() => router.push("/")} />;
 }
