@@ -169,6 +169,12 @@ function RubricContent() {
     }
   }
 
+  function handleAddQuestion() {
+    actions.addQuestion();
+    const nextIdx = assessment.questions.length + 1;
+    setSelectedQId(`q${nextIdx}`);
+  }
+
   function handleSaveDraft() {
     if (!currentQ) return;
     actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages);
@@ -230,48 +236,85 @@ function RubricContent() {
         </Alert>
       )}
 
-      {/* Main Rubric Workspace Split Layout (Figma 121:2564) */}
-      <div className="flex flex-col gap-6 lg:flex-row items-start">
-        {/* Left: Question Rail (Figma 121:2565) */}
-        <div className="w-full shrink-0 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-4 shadow-sm lg:w-64 space-y-4">
-          <div className="text-xs font-semibold tracking-wider text-[color:var(--x-secondary,#4b5563)] uppercase px-2 pt-1">
-            QUESTIONS
+      {/* If no questions exist yet, display a clean, centered onboarding card */}
+      {assessment.questions.length === 0 ? (
+        <div className="w-full flex flex-col items-center justify-center rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-12 sm:p-16 text-center shadow-sm">
+          <div className="size-16 rounded-2xl bg-[color:var(--x-primary50,#f0f1ff)] flex items-center justify-center text-[color:var(--x-primary700,#3730a3)] mb-4">
+            <svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </div>
-
-          <div className="space-y-1">
-            {assessment.questions.map((q) => {
-              const active = q.id === selectedQId;
-              const appR = rubrics.find((r) => r.questionId === q.id && r.approved);
-              return (
-                <button
-                  key={q.id}
-                  onClick={() => {
-                    setSelectedQId(q.id);
-                    setValidationMsg(null);
-                  }}
-                  className={`w-full flex items-center justify-between h-12 px-4 rounded-xl text-sm font-semibold transition ${
-                    active
-                      ? "bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]"
-                      : "text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50"
-                  }`}
-                >
-                  <span>{q.number} · {q.maxMarks} marks</span>
-                  {appR && (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                      v{appR.version}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+          <h2 className="font-['Plus_Jakarta_Sans'] text-2xl font-bold text-[color:var(--x-ink,#111827)]">
+            Create marking scheme
+          </h2>
+          <p className="mt-2 text-sm text-[color:var(--x-secondary,#4b5563)] max-w-md">
+            Start by adding exam questions to define rubric criteria, set mark allocations, and attach JPEG or PNG model answer sheets.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={handleAddQuestion}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition cursor-pointer"
+            >
+              + Add first question
+            </button>
+            <label className="cursor-pointer inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-6 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] shadow-sm hover:bg-slate-50 transition">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Upload model answer (JPEG / PNG)
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                multiple
+                className="hidden"
+                onChange={(e) => handleImageUpload(e)}
+              />
+            </label>
           </div>
+        </div>
+      ) : (
+        /* Main Rubric Workspace Split Layout (Figma 121:2564) */
+        <div className="flex flex-col gap-6 lg:flex-row items-start">
+          {/* Left: Question Rail (Figma 121:2565) */}
+          <div className="w-full shrink-0 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-4 shadow-sm lg:w-64 space-y-4">
+            <div className="text-xs font-semibold tracking-wider text-[color:var(--x-secondary,#4b5563)] uppercase px-2 pt-1">
+              QUESTIONS
+            </div>
 
-          <button
-            onClick={() => actions.addQuestion()}
-            className="w-full h-10 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition"
-          >
-            + Add Question
-          </button>
+            <div className="space-y-1">
+              {assessment.questions.map((q) => {
+                const active = q.id === selectedQId;
+                const appR = rubrics.find((r) => r.questionId === q.id && r.approved);
+                return (
+                  <button
+                    key={q.id}
+                    onClick={() => {
+                      setSelectedQId(q.id);
+                      setValidationMsg(null);
+                    }}
+                    className={`w-full flex items-center justify-between h-12 px-4 rounded-xl text-sm font-semibold transition cursor-pointer ${
+                      active
+                        ? "bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]"
+                        : "text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>{q.number} · {q.maxMarks} marks</span>
+                    {appR && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                        v{appR.version}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={handleAddQuestion}
+              className="w-full h-10 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition cursor-pointer"
+            >
+              + Add Question
+            </button>
 
           {/* Circular Progress Ring (Figma 15:583) */}
           <div className="flex flex-col items-center justify-center p-4 border-t border-[color:var(--x-border,#e4e7ef)]">
@@ -577,26 +620,9 @@ function RubricContent() {
               </button>
             </div>
           </div>
-        ) : (
-          <div className="flex-1 w-full flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center min-h-[380px] shadow-sm">
-            <div className="size-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 mb-4">
-              <svg viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <h3 className="font-['Plus_Jakarta_Sans'] text-lg font-bold text-slate-800">No questions added yet</h3>
-            <p className="mt-1 text-xs text-slate-500 max-w-sm">
-              Add exam questions to define rubric criteria, set mark allocations, and attach JPEG or PNG model answer sheets.
-            </p>
-            <button
-              onClick={() => actions.addQuestion()}
-              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 transition shadow-xs cursor-pointer"
-            >
-              + Add first question
-            </button>
-          </div>
-        )}
+        ) : null}
       </div>
+    )}
     </div>
   );
 }
