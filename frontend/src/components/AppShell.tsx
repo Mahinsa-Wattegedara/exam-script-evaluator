@@ -51,6 +51,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const { state, user, logout } = useStore();
 
+  // Rules of Hooks: All hooks must run unconditionally in every render
+  useEffect(() => {
+    if (user && path === "/login") {
+      router.replace("/");
+    }
+  }, [user, path, router]);
+
   if (!user) {
     if (path === "/login" || searchParams.get("view") === "login") {
       return <LoginView onBack={() => router.push("/")} onSuccess={() => router.push("/")} />;
@@ -61,14 +68,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     return <LoginView onBack={() => router.push("/")} onSuccess={() => router.push("/")} />;
   }
 
-  // If already authenticated and navigating to /login, redirect straight to workspace home
-  useEffect(() => {
-    if (user && path === "/login") {
-      router.replace("/");
-    }
-  }, [user, path, router]);
-
-  if (user && path === "/login") {
+  // If already authenticated and navigating to /login, show brief redirect state
+  if (path === "/login") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f5f6fa]">
         <div className="text-sm font-semibold text-slate-500">Redirecting to workspace...</div>
