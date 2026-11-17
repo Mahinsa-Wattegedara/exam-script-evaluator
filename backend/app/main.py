@@ -30,9 +30,9 @@ from app.services.supabase_auth import authenticate_with_supabase, register_user
 backend_env = Path(__file__).resolve().parent.parent / ".env"
 frontend_env = Path(__file__).resolve().parent.parent.parent / "frontend" / ".env"
 if backend_env.exists():
-    load_dotenv(backend_env)
+    load_dotenv(backend_env, override=True)
 elif frontend_env.exists():
-    load_dotenv(frontend_env)
+    load_dotenv(frontend_env, override=True)
 
 app = FastAPI(
     title="Exam Script Evaluator API",

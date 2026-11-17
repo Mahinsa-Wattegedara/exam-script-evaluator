@@ -22,12 +22,16 @@ from dotenv import load_dotenv
 _backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
 _frontend_env = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / ".env"
 if _backend_env.exists():
-    load_dotenv(_backend_env)
+    load_dotenv(_backend_env, override=True)
 elif _frontend_env.exists():
-    load_dotenv(_frontend_env)
-
+    load_dotenv(_frontend_env, override=True)
 
 def _get_supabase_config() -> tuple[str, str] | None:
+    # Always reload from file if exists to prevent stale cache across reloads
+    if _backend_env.exists():
+        load_dotenv(_backend_env, override=True)
+    elif _frontend_env.exists():
+        load_dotenv(_frontend_env, override=True)
     url = (os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "").strip()
     key = (
         os.getenv("SUPABASE_SECRET_KEY")
@@ -76,8 +80,8 @@ async def authenticate_with_supabase(
                     "Authorization": f"Bearer {api_key}",
                 },
             )
-    except Exception:
-        return False, None, None, "Could not reach Supabase over HTTPS."
+    except Exception as exc:
+        return False, None, None, f"Could not reach Supabase over HTTPS ({type(exc).__name__}: {exc})."
 
     if res.status_code >= 400:
         return (
