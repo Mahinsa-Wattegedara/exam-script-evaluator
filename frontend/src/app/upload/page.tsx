@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button } from "@/components/ui";
 import { formatBytes, loadImage, putBlob } from "@/lib/image-utils";
 import { MAX_FILE_BYTES, MAX_IMAGES_PER_SCRIPT, MAX_SCRIPTS, nowIso, pseudonym, uid } from "@/lib/logic";
@@ -292,7 +292,7 @@ export default function UploadPage() {
                   const hasError = items.some((i) => i.error || i.state === "failed");
                   const scriptCode = codeFor(key) || "S-014";
                   return (
-                    <div key={key} className="contents">
+                    <Fragment key={key}>
                       {/* Script Group Header (Figma 121:3189) */}
                       <tr className={hasError ? "bg-[color:var(--x-dangerTint,#fee2e2)]/40" : "bg-[color:var(--x-primary50,#f0f1ff)]"}>
                         <td colSpan={2} className="px-6 py-3">
@@ -405,7 +405,7 @@ export default function UploadPage() {
                           </tr>
                         );
                       })}
-                    </div>
+                    </Fragment>
                   );
                 })
               )}
