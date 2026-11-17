@@ -117,4 +117,4 @@ exam-script-evaluator/
 
 ## License & Academic Disclaimer
 
-Developed for the University of Moratuwa (UOM) Department of Computer Science & Engineering. All rights reserved.
+Developed for Xeynergy 
