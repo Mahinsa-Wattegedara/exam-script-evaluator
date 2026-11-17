@@ -7,7 +7,7 @@ import { activeVersion, extractAnswer, nowIso, orderedImages, uid, versionText }
 import { buildSeed } from "./seed";
 import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
 
-const KEY = "m1-enterprise-state-v3";
+const KEY = "scriptx-clean-state-v5";
 const ACTOR = "Dr. S. Silva";
 
 type Ctx = {
@@ -38,6 +38,8 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   return {
     reset: async () => {
       localStorage.removeItem(KEY);
+      localStorage.removeItem("m1-enterprise-state-v3");
+      localStorage.removeItem("m1-enterprise-state-v2");
       await clearBlobs().catch(() => undefined);
       mutate((d) => Object.assign(d, buildSeed()));
     },
@@ -661,12 +663,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       let s: State;
       try {
+        localStorage.removeItem("m1-enterprise-state-v3");
         localStorage.removeItem("m1-enterprise-state-v2");
+        await clearBlobs().catch(() => undefined);
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
         if (!s.rubrics) s.rubrics = [];
-        if (s.assessment.course === "CS2042 Operating Systems") {
-          s.assessment.course = "";
+        if (!s.assessment.course || s.assessment.course === "CS2042 Operating Systems") {
+          s.assessment.course = "Object Oriented Programming";
         }
       } catch {
         s = buildSeed();

@@ -290,7 +290,7 @@ export default function UploadPage() {
               ) : (
                 groups.map(([key, items]) => {
                   const hasError = items.some((i) => i.error || i.state === "failed");
-                  const scriptCode = codeFor(key) || "S-014";
+                  const scriptCode = codeFor(key) || key;
                   return (
                     <Fragment key={key}>
                       {/* Script Group Header (Figma 121:3189) */}

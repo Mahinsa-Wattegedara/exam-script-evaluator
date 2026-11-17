@@ -20,61 +20,29 @@ export default function Overview() {
 
   const awaitingReviewCount = count((s) => s === "NEEDS_REVIEW");
   const approvedCount = count((s) => s === "READY_FOR_AI");
+  const isReleased = Object.keys(state.studentResults || {}).length > 0;
 
-  // Mock list of assessments conforming to Figma 01 / Assessments
+  // Real assessment row mapped from live store state
   const assessmentRows = [
     {
-      id: "mid-sem-2026",
+      id: assessment.id || "asm-mid-2026",
       name: assessment.title || "Mid-semester assessment",
-      course: "Object Oriented Programming",
-      scriptsProgress: `${scripts.length || 48} / 48`,
-      progressPct: Math.min(100, Math.round(((scripts.length || 48) / 48) * 100)),
-      updated: "28 Oct 2026",
-      status: awaitingReviewCount > 0 ? "Needs review" : "Preparing scripts",
-      statusTone: awaitingReviewCount > 0 ? "warning" : "default",
-      actionText: awaitingReviewCount > 0 ? "Open review queue →" : "Approve transcripts →",
-      actionHref: awaitingReviewCount > 0 ? "/review" : "/scripts",
-    },
-    {
-      id: "quiz-04",
-      name: "Weekly quiz 04",
-      course: "Object Oriented Programming",
-      scriptsProgress: "32 / 48",
-      progressPct: 67,
-      updated: "27 Oct 2026",
-      status: "Preparing scripts",
-      statusTone: "default",
-      actionText: "Approve transcripts →",
-      actionHref: "/scripts",
-    },
-    {
-      id: "practice-01",
-      name: "Practice assessment",
-      course: "Object Oriented Programming",
-      scriptsProgress: "0 / 48",
-      progressPct: 0,
-      updated: "26 Oct 2026",
-      status: "Draft",
-      statusTone: "default",
-      actionText: "Add marking scheme →",
-      actionHref: "/rubric",
-    },
-    {
-      id: "quiz-03",
-      name: "Weekly quiz 03",
-      course: "Object Oriented Programming",
-      scriptsProgress: "48 / 48",
-      progressPct: 100,
-      updated: "20 Oct 2026",
-      status: "Released",
-      statusTone: "success",
-      actionText: "View results →",
-      actionHref: "/review",
+      course: assessment.course || "Object Oriented Programming",
+      scriptsProgress: `${scripts.length} uploaded`,
+      progressPct: scripts.length > 0 ? Math.min(100, Math.round((approvedCount / scripts.length) * 100)) : 0,
+      updated: scripts.length > 0 ? "Recently" : "Draft",
+      status: isReleased ? "Released" : awaitingReviewCount > 0 ? "Needs review" : scripts.length > 0 ? "Preparing scripts" : "Draft",
+      statusTone: isReleased ? "success" : awaitingReviewCount > 0 ? "warning" : "default",
+      actionText: isReleased ? "View results →" : awaitingReviewCount > 0 ? "Open review queue →" : scripts.length > 0 ? "Approve transcripts →" : "Add marking scheme →",
+      actionHref: isReleased ? "/review" : awaitingReviewCount > 0 ? "/review" : scripts.length > 0 ? "/scripts" : "/rubric",
     },
   ];
 
+  const activeCount = isReleased ? 0 : 1;
+  const releasedCount = isReleased ? 1 : 0;
+
   const visibleAssessments = assessmentRows.filter((r) => {
-    if (activeTab === "ACTIVE") return r.status === "Needs review" || r.status === "Preparing scripts";
+    if (activeTab === "ACTIVE") return r.status === "Needs review" || r.status === "Preparing scripts" || r.status === "Draft";
     if (activeTab === "RELEASED") return r.status === "Released";
     return true;
   });
@@ -214,7 +182,7 @@ export default function Overview() {
             </span>
           </div>
           <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
-            4
+            {assessmentRows.length}
           </div>
         </div>
 
@@ -227,11 +195,11 @@ export default function Overview() {
               </svg>
             </div>
             <span className="text-sm font-normal text-[color:var(--x-secondary,#4b5563)]">
-              Active / Needs review
+              Active / In progress
             </span>
           </div>
           <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
-            3
+            {activeCount}
           </div>
         </div>
 
@@ -248,30 +216,32 @@ export default function Overview() {
             </span>
           </div>
           <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
-            1
+            {releasedCount}
           </div>
         </div>
       </div>
 
-      {/* Warning Alert Banner (Figma 15:519) */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl bg-[color:var(--x-warningTint,#fef3c7)] p-5 border border-amber-200">
-        <div className="flex items-center gap-3">
-          <div className="flex size-6 shrink-0 items-center justify-center text-amber-700">
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+      {/* Warning Alert Banner - only shown when answers actually need review */}
+      {awaitingReviewCount > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl bg-[color:var(--x-warningTint,#fef3c7)] p-5 border border-amber-200">
+          <div className="flex items-center gap-3">
+            <div className="flex size-6 shrink-0 items-center justify-center text-amber-700">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-[color:var(--x-ink,#111827)]">
+              {assessment.title || "Mid-semester assessment"}: {awaitingReviewCount} answer{awaitingReviewCount > 1 ? "s" : ""} need your decision before results can be released.
+            </p>
           </div>
-          <p className="text-sm font-medium text-[color:var(--x-ink,#111827)]">
-            Mid-semester assessment: {awaitingReviewCount > 0 ? awaitingReviewCount : 6} answers need your decision before results can be released.
-          </p>
+          <Link
+            href="/review"
+            className="shrink-0 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] hover:underline"
+          >
+            Open review queue →
+          </Link>
         </div>
-        <Link
-          href="/review"
-          className="shrink-0 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] hover:underline"
-        >
-          Open review queue →
-        </Link>
-      </div>
+      )}
 
       {/* Filter Tabs (Figma 121:2312) */}
       <div className="flex items-center gap-2 border-b border-[color:var(--x-border,#e4e7ef)] pb-2">
@@ -283,7 +253,7 @@ export default function Overview() {
               : "text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-100"
           }`}
         >
-          All assessments (4)
+          All assessments ({assessmentRows.length})
         </button>
         <button
           onClick={() => setActiveTab("ACTIVE")}
@@ -293,7 +263,7 @@ export default function Overview() {
               : "text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-100"
           }`}
         >
-          Active (3)
+          Active ({activeCount})
         </button>
         <button
           onClick={() => setActiveTab("RELEASED")}
@@ -303,7 +273,7 @@ export default function Overview() {
               : "text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-100"
           }`}
         >
-          Released (1)
+          Released ({releasedCount})
         </button>
       </div>
 
