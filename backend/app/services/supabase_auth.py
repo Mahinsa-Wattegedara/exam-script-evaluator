@@ -15,6 +15,18 @@ from app.services.crypto_service import (
 )
 
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded
+_backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
+_frontend_env = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / ".env"
+if _backend_env.exists():
+    load_dotenv(_backend_env)
+elif _frontend_env.exists():
+    load_dotenv(_frontend_env)
+
+
 def _get_supabase_config() -> tuple[str, str] | None:
     url = (os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "").strip()
     key = (
@@ -164,9 +176,10 @@ async def register_user_in_supabase(
                 json={
                     "username": username,
                     "email": email,
+                    "name": display_name,
+                    "display_name": display_name,
                     "password_hash": password_hash,
                     "role": payload.role,
-                    "display_name": display_name,
                     "encrypted_student_id": encrypted_student_id,
                     "encrypted_pseudonym": encrypted_pseudonym,
                     "is_active": True,
@@ -180,20 +193,44 @@ async def register_user_in_supabase(
                     f"Could not create user in Supabase ({res.status_code}): {res.text[:140]}",
                 )
 
-            if payload.role == "STUDENT" and encrypted_student_id and pseudonym:
-                await client.post(
-                    f"{base_url}/rest/v1/student_identity_map",
-                    headers={
-                        "apikey": api_key,
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "assessment_id": "asm-mid-2026",
-                        "pseudonymous_script_code": pseudonym,
-                        "encrypted_real_student_id": encrypted_student_id,
-                    },
-                )
+            created_rows = res.json()
+            user_id = created_rows[0].get("user_id") if isinstance(created_rows, list) and created_rows else None
+
+            # Propagate subtype according to FIXED_ER.pdf
+            if user_id:
+                if payload.role == "TEACHER":
+                    await client.post(
+                        f"{base_url}/rest/v1/teachers",
+                        headers={"apikey": api_key, "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={"teacher_id": user_id, "department": "Department of Computer Science & Engineering", "title_prefix": "Dr."},
+                    )
+                elif payload.role == "STUDENT":
+                    await client.post(
+                        f"{base_url}/rest/v1/students",
+                        headers={"apikey": api_key, "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={"student_id": user_id, "pseudonym_code": pseudonym},
+                    )
+                    if encrypted_student_id and pseudonym:
+                        await client.post(
+                            f"{base_url}/rest/v1/student_identity_map",
+                            headers={
+                                "apikey": api_key,
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "assessment_id": "asm-cs2042-mid-2026",
+                                "student_id": user_id,
+                                "pseudonym_code": pseudonym,
+                                "encrypted_real_student_id": encrypted_student_id,
+                            },
+                        )
+                elif payload.role == "ADMIN":
+                    await client.post(
+                        f"{base_url}/rest/v1/project_admins",
+                        headers={"apikey": api_key, "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={"admin_id": user_id, "access_level": "SYSTEM_ADMIN"},
+                    )
     except Exception:
         return False, None, None, "Registration service error communicating with Supabase."
 
