@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { LandingPage } from "@/components/LandingPage";
 import { LoginView } from "@/components/LoginView";
 import { Alert, Button } from "@/components/ui";
 import { useStore } from "@/lib/store";
@@ -51,7 +52,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const { state, user, logout } = useStore();
 
   if (!user) {
-    return <LoginView />;
+    if (path === "/login" || searchParams.get("view") === "login") {
+      return <LoginView onBack={() => router.push("/")} />;
+    }
+    if (path === "/") {
+      return <LandingPage onLogin={() => router.push("/login")} />;
+    }
+    return <LoginView onBack={() => router.push("/")} />;
   }
 
   const isTeacher = user.role === "TEACHER";
