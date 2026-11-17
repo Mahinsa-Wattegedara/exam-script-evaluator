@@ -248,40 +248,20 @@ function RubricContent() {
               No questions found. Click &ldquo;+ Add Question&rdquo; to begin setting up marking criteria.
             </Card>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-12">
-              {/* LEFT PANEL: Teacher Answer Script / Marking Scheme Image */}
-              <div className="space-y-4 lg:col-span-6">
-                <Card>
-                  <CardHeader
-                    title="Teacher Model Answer Script"
-                    sub="Upload photo or scan of teacher answer sheet (JPEG or PNG, up to 10 MB)"
-                    right={
-                      <label className="cursor-pointer">
-                        <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-xs">
-                          + Upload Sheet Image
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => handleImageUpload(e)}
-                        />
-                      </label>
-                    }
-                  />
-                  <div className="space-y-3 p-4">
-                    {modelImages.length === 0 ? (
-                      <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-6 text-center">
-                        <svg viewBox="0 0 24 24" className="h-10 w-10 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                          <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="mt-2 text-sm font-semibold text-slate-800">No model answer sheet uploaded yet</div>
-                        <p className="mt-1 max-w-sm text-xs text-slate-500">
-                          Upload the teacher&apos;s handwritten model answers or marking scheme sheet to compare side-by-side with rubric criteria.
-                        </p>
-                        <label className="mt-4 cursor-pointer rounded-md bg-white border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs">
-                          Browse image files
+            <div className="space-y-6">
+              {/* TOP: Side-by-Side Model Answer Comparison (Image on Left, Transcript on Right) */}
+              <div className="grid gap-6 lg:grid-cols-12 items-start">
+                {/* LEFT PANEL: Teacher Answer Script / Marking Scheme Image */}
+                <div className="lg:col-span-6">
+                  <Card className="flex flex-col h-full">
+                    <CardHeader
+                      title="Teacher Model Answer Script"
+                      sub="Upload photo or scan of teacher answer sheet (JPEG or PNG, up to 10 MB)"
+                      right={
+                        <label className="cursor-pointer">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-xs">
+                            + Upload Sheet Image
+                          </span>
                           <input
                             type="file"
                             accept="image/jpeg,image/png"
@@ -290,141 +270,220 @@ function RubricContent() {
                             onChange={(e) => handleImageUpload(e)}
                           />
                         </label>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap gap-1.5">
-                            {modelImages.map((im, idx) => (
-                              <button
-                                key={im.id}
-                                type="button"
-                                onClick={() => setSelectedImgIdx(idx)}
-                                className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                                  idx === selectedImgIdx
-                                    ? "bg-slate-900 text-white"
-                                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                }`}
+                      }
+                    />
+                    <div className="flex-1 p-4 space-y-3">
+                      {modelImages.length === 0 ? (
+                        <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-6 text-center">
+                          <svg viewBox="0 0 24 24" className="h-10 w-10 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                            <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <div className="mt-2 text-sm font-semibold text-slate-800">No model answer sheet uploaded yet</div>
+                          <p className="mt-1 max-w-sm text-xs text-slate-500">
+                            Upload the teacher&apos;s handwritten model answers or marking scheme sheet to compare side-by-side with the transcript.
+                          </p>
+                          <label className="mt-4 cursor-pointer rounded-md bg-white border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs">
+                            Browse image files
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => handleImageUpload(e)}
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {modelImages.map((im, idx) => (
+                                <button
+                                  key={im.id}
+                                  type="button"
+                                  onClick={() => setSelectedImgIdx(idx)}
+                                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                                    idx === selectedImgIdx
+                                      ? "bg-slate-900 text-white"
+                                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                  }`}
+                                >
+                                  Page {im.pageNumber}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <Button size="sm" onClick={() => setZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}>
+                                  −
+                                </Button>
+                                <span className="w-10 text-center font-mono text-xs">{Math.round(zoom * 100)}%</span>
+                                <Button size="sm" onClick={() => setZoom((z) => Math.min(3, Number((z + 0.25).toFixed(2))))}>
+                                  +
+                                </Button>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={isExtractingOcr}
+                                onClick={runModelAnswerOcr}
                               >
-                                Page {im.pageNumber}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1">
-                              <Button size="sm" onClick={() => setZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}>
-                                −
+                                {isExtractingOcr ? "Reading…" : "Extract text →"}
                               </Button>
-                              <span className="w-10 text-center font-mono text-xs">{Math.round(zoom * 100)}%</span>
-                              <Button size="sm" onClick={() => setZoom((z) => Math.min(3, Number((z + 0.25).toFixed(2))))}>
-                                +
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  const cur = modelImages[selectedImgIdx];
+                                  if (cur) {
+                                    const next = modelImages.filter((_, i) => i !== selectedImgIdx);
+                                    const renumbered = next.map((im, i) => ({ ...im, pageNumber: i + 1 }));
+                                    setModelImages(renumbered);
+                                    setSelectedImgIdx(0);
+                                    if (currentQ) {
+                                      actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, renumbered);
+                                    }
+                                  }
+                                }}
+                              >
+                                Remove
                               </Button>
                             </div>
+                          </div>
+
+                          <div className="h-[56vh] min-h-[380px] overflow-auto rounded-lg border border-slate-300 bg-slate-100 p-2 text-center">
+                            <div style={{ width: `${zoom * 100}%`, margin: "0 auto" }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={modelImages[selectedImgIdx]?.originalUrl}
+                                alt="Teacher Model Answer Sheet"
+                                className="rounded border border-slate-200 bg-white shadow-xs max-w-full"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+
+                {/* RIGHT PANEL: Supplemental Model Answer Transcript & Notes (REQ-15) */}
+                <div className="lg:col-span-6">
+                  <Card className="flex flex-col h-full">
+                    <CardHeader
+                      title="Model Answer Transcript (REQ-15)"
+                      sub="Extracted text & teacher notes — Side-by-side with sheet image"
+                      right={
+                        <div className="flex items-center gap-2">
+                          {modelImages.length > 0 && (
                             <Button
                               size="sm"
                               variant="secondary"
                               disabled={isExtractingOcr}
                               onClick={runModelAnswerOcr}
                             >
-                              {isExtractingOcr ? "Reading…" : "Extract text →"}
+                              {isExtractingOcr ? "Extracting OCR…" : "Extract OCR Text ⚡"}
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                const cur = modelImages[selectedImgIdx];
-                                if (cur) {
-                                  const next = modelImages.filter((_, i) => i !== selectedImgIdx);
-                                  const renumbered = next.map((im, i) => ({ ...im, pageNumber: i + 1 }));
-                                  setModelImages(renumbered);
-                                  setSelectedImgIdx(0);
-                                  if (currentQ) {
-                                    actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, renumbered);
-                                  }
-                                }
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </div>
+                          )}
                         </div>
-
-                        <div className="max-h-[68vh] overflow-auto rounded-lg border border-slate-300 bg-slate-100 p-2 text-center">
-                          <div style={{ width: `${zoom * 100}%`, margin: "0 auto" }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={modelImages[selectedImgIdx]?.originalUrl}
-                              alt="Teacher Model Answer Sheet"
-                              className="rounded border border-slate-200 bg-white shadow-xs max-w-full"
-                            />
-                          </div>
-                        </div>
+                      }
+                    />
+                    <div className="flex-1 p-4 flex flex-col space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-50 border border-slate-200 px-3 py-1.5 text-xs text-slate-600">
+                        <span>Compare extracted handwriting against the sheet image on the left. Edit directly to fix any OCR errors.</span>
+                        <span className="font-mono font-medium text-slate-700">
+                          {modelAnswerText.trim() ? modelAnswerText.trim().split(/\s+/).length : 0} words • {modelAnswerText.length} chars
+                        </span>
                       </div>
-                    )}
-                  </div>
-                </Card>
-              </div>
 
-              {/* RIGHT PANEL: Criteria & Scoring Rules */}
-              <div className="space-y-4 lg:col-span-6">
-                <Card>
-                  <CardHeader
-                    title={`${currentQ.number}: Rubric Criteria & Rules`}
-                    sub={`Maximum Marks: ${currentQ.maxMarks} m • SRS Section 3.2 (REQ-10–REQ-16)`}
-                    right={
-                      <div className="flex items-center gap-2">
-                        {activeRubric ? (
-                          <Badge tone="green">Approved v{activeRubric.version} ✓</Badge>
-                        ) : (
-                          <Badge tone="amber">Draft (Unapproved)</Badge>
+                      <textarea
+                        rows={14}
+                        value={modelAnswerText}
+                        onChange={(e) => setModelAnswerText(e.target.value)}
+                        placeholder="Extracted handwritten model answer text (e.g. Abstract, definitions, key points) will appear here after clicking 'Extract text →', or type/paste notes directly..."
+                        className="h-[50vh] min-h-[340px] w-full rounded-md border border-slate-300 p-3 font-mono text-xs text-slate-800 leading-relaxed focus:border-indigo-500 focus:outline-none resize-none"
+                      />
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                        <span>Guides evaluators during automated marking; does not add criteria points (REQ-15).</span>
+                        {modelAnswerText && (
+                          <button
+                            type="button"
+                            onClick={() => setModelAnswerText("")}
+                            className="text-xs text-slate-400 hover:text-rose-600 transition"
+                          >
+                            Clear text
+                          </button>
                         )}
                       </div>
-                    }
-                  />
-                  <div className="space-y-4 p-5">
-                    {/* Prompt input */}
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-700">Question Prompt</label>
-                      <input
-                        type="text"
-                        value={currentQ.prompt}
-                        onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
-                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none"
-                        placeholder="e.g. Explain the difference between process and thread..."
-                      />
+                    </div>
+                  </Card>
+                </div>
+              </div>
+
+              {/* BOTTOM SECTION: Scoring Criteria & Rubric Rules (Full Width) */}
+              <Card>
+                <CardHeader
+                  title={`${currentQ.number}: Scoring Criteria & Rubric Rules`}
+                  sub={`Maximum Marks: ${currentQ.maxMarks} m • SRS Section 3.2 (REQ-10–REQ-16)`}
+                  right={
+                    <div className="flex items-center gap-2">
+                      {activeRubric ? (
+                        <Badge tone="green">Approved v{activeRubric.version} ✓</Badge>
+                      ) : (
+                        <Badge tone="amber">Draft (Unapproved)</Badge>
+                      )}
+                    </div>
+                  }
+                />
+                <div className="space-y-4 p-5">
+                  {/* Prompt input */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">Question Prompt</label>
+                    <input
+                      type="text"
+                      value={currentQ.prompt}
+                      onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none"
+                      placeholder="e.g. Explain the difference between process and thread..."
+                    />
+                  </div>
+
+                  {/* Criteria List */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                      <div>
+                        <span className="text-xs font-semibold text-slate-800">Scoring Criteria (REQ-11)</span>
+                        <span className="text-[11px] text-slate-400 ml-2">Define concepts, max mark per criterion, partial credits, and accepted alternatives</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          const nextCId = `C${criteria.length + 1}`;
+                          setCriteria((prev) => [
+                            ...prev,
+                            {
+                              id: nextCId,
+                              description: "",
+                              maxMarks: 1.0,
+                              allowedPartialCredits: [0, 0.5, 1.0],
+                              acceptedAlternatives: [],
+                            },
+                          ]);
+                        }}
+                      >
+                        + Add Criterion
+                      </Button>
                     </div>
 
-                    {/* Criteria List */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                        <span className="text-xs font-semibold text-slate-800">Scoring Criteria (REQ-11)</span>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => {
-                            const nextCId = `C${criteria.length + 1}`;
-                            setCriteria((prev) => [
-                              ...prev,
-                              {
-                                id: nextCId,
-                                description: "",
-                                maxMarks: 1.0,
-                                allowedPartialCredits: [0, 0.5, 1.0],
-                                acceptedAlternatives: [],
-                              },
-                            ]);
-                          }}
-                        >
-                          + Add Criterion
-                        </Button>
-                      </div>
-
+                    <div className="grid gap-3 lg:grid-cols-2">
                       {criteria.map((c, idx) => (
-                        <div key={c.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-2.5">
+                        <div key={c.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3.5 space-y-2.5">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-xs font-bold text-indigo-700">{c.id}</span>
+                            <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-0.5">{c.id}</span>
                             <div className="flex items-center gap-2">
-                              <label className="text-xs text-slate-500">Max Mark:</label>
+                              <label className="text-xs font-medium text-slate-600">Max Mark:</label>
                               <input
                                 type="number"
                                 step="0.5"
@@ -438,10 +497,12 @@ function RubricContent() {
                                 }}
                                 className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-800"
                               />
+                              <span className="text-xs text-slate-500">m</span>
                               <button
                                 type="button"
                                 onClick={() => setCriteria((prev) => prev.filter((_, i) => i !== idx))}
                                 className="text-xs text-rose-500 hover:text-rose-700 pl-1"
+                                title="Delete criterion"
                               >
                                 ✕
                               </button>
@@ -458,14 +519,14 @@ function RubricContent() {
                                   prev.map((item, i) => (i === idx ? { ...item, description: val } : item)),
                                 );
                               }}
-                              placeholder="Description of required knowledge or answer step..."
-                              className="w-full rounded border border-slate-300 px-2.5 py-1 text-xs text-slate-800"
+                              placeholder="Description of required knowledge, concept, or answer step..."
+                              className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs text-slate-800"
                             />
                           </div>
 
                           <div className="grid grid-cols-2 gap-2 text-[11px]">
                             <div>
-                              <span className="text-slate-500">Partial credit steps:</span>
+                              <span className="text-slate-500 font-medium">Partial credit steps:</span>
                               <input
                                 type="text"
                                 value={c.allowedPartialCredits.join(", ")}
@@ -481,11 +542,11 @@ function RubricContent() {
                                   );
                                 }}
                                 placeholder="0, 0.5, 1.0"
-                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-0.5 font-mono text-xs"
+                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs"
                               />
                             </div>
                             <div>
-                              <span className="text-slate-500">Accepted alternatives:</span>
+                              <span className="text-slate-500 font-medium">Accepted alternatives:</span>
                               <input
                                 type="text"
                                 value={c.acceptedAlternatives.join("; ")}
@@ -498,77 +559,60 @@ function RubricContent() {
                                   );
                                 }}
                                 placeholder="alternative term 1; alternative 2"
-                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-0.5 text-xs"
+                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-xs"
                               />
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
+                  </div>
 
-                    {/* REQ-12 Live Sum Validation Box */}
-                    <div
-                      className={`rounded-lg border p-3 text-xs ${
-                        isSumValid
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                          : "border-amber-300 bg-amber-50 text-amber-800"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between font-semibold">
-                        <span>
-                          Criteria Sum: {criteriaSum} m / Question Max: {qMaxMarks} m
-                        </span>
-                        <span>{isSumValid ? "✓ Exact match (REQ-12 Valid)" : "⚠️ Mismatch (REQ-12 Lock)"}</span>
-                      </div>
-                      <div className="mt-1 text-[11px] opacity-90">
-                        {isSumValid
-                          ? "Sum of criteria equals question maximum. This rubric version can be approved for AI evaluation."
-                          : `Per REQ-12, the system rejects approval when criteria sum (${criteriaSum} m) does not equal question maximum (${qMaxMarks} m). Adjust criterion allocations to approve.`}
-                      </div>
+                  {/* REQ-12 Live Sum Validation Box */}
+                  <div
+                    className={`rounded-lg border p-3.5 text-xs ${
+                      isSumValid
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                        : "border-amber-300 bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-semibold">
+                      <span>
+                        Criteria Sum: {criteriaSum} m / Question Max: {qMaxMarks} m
+                      </span>
+                      <span>{isSumValid ? "✓ Exact match (REQ-12 Valid)" : "⚠️ Mismatch (REQ-12 Lock)"}</span>
                     </div>
-
-                    {/* REQ-15 Supplemental Model Answer Text */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700">
-                          Supplemental Model Answer Text (REQ-15)
-                        </label>
-                        <span className="text-[11px] text-slate-400">Guides evaluators; does not add criteria</span>
-                      </div>
-                      <textarea
-                        rows={4}
-                        value={modelAnswerText}
-                        onChange={(e) => setModelAnswerText(e.target.value)}
-                        placeholder="Official model answer text or points extracted from the teacher answer sheet on the left..."
-                        className="w-full rounded-md border border-slate-300 p-2.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          if (currentQ) {
-                            actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages);
-                            setValidationMsg({ ok: true, msg: "Draft saved locally." });
-                          }
-                        }}
-                      >
-                        Save Draft
-                      </Button>
-                      <Button
-                        variant="primary"
-                        disabled={!isSumValid}
-                        onClick={handleApproveRubric}
-                      >
-                        Approve Rubric Version (v{(rubrics.filter((r) => r.questionId === currentQ.id && r.approved).length) + 1}) →
-                      </Button>
+                    <div className="mt-1 text-[11px] opacity-90">
+                      {isSumValid
+                        ? "Sum of criteria equals question maximum. This rubric version can be approved for AI evaluation."
+                        : `Per REQ-12, the system rejects approval when criteria sum (${criteriaSum} m) does not equal question maximum (${qMaxMarks} m). Adjust criterion allocations to approve.`}
                     </div>
                   </div>
-                </Card>
-              </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        if (currentQ) {
+                          actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages);
+                          setValidationMsg({ ok: true, msg: "Draft saved locally." });
+                        }
+                      }}
+                    >
+                      Save Draft
+                    </Button>
+                    <Button
+                      variant="primary"
+                      disabled={!isSumValid}
+                      onClick={handleApproveRubric}
+                    >
+                      Approve Rubric Version (v{(rubrics.filter((r) => r.questionId === currentQ.id && r.approved).length) + 1}) →
+                    </Button>
+                  </div>
+                </div>
+              </Card>
             </div>
           )}
         </div>
