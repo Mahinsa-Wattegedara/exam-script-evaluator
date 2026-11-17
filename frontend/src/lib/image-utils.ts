@@ -13,11 +13,24 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
 /** Produces a header-masked copy. The original image is never modified (M1-01, M1-02). */
 export async function createMaskedCopy(src: string, rect: Rect): Promise<string> {
   const img = await loadImage(src);
+  let w = img.naturalWidth;
+  let h = img.naturalHeight;
+  const MAX_DIM = 1800;
+  if (Math.max(w, h) > MAX_DIM) {
+    if (w > h) {
+      h = Math.round((h * MAX_DIM) / w);
+      w = MAX_DIM;
+    } else {
+      w = Math.round((w * MAX_DIM) / h);
+      h = MAX_DIM;
+    }
+  }
+
   const canvas = document.createElement("canvas");
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d")!;
-  ctx.drawImage(img, 0, 0);
+  ctx.drawImage(img, 0, 0, w, h);
   ctx.fillStyle = "#111827";
   ctx.fillRect(
     (rect.x / 100) * canvas.width,
@@ -25,7 +38,7 @@ export async function createMaskedCopy(src: string, rect: Rect): Promise<string>
     (rect.width / 100) * canvas.width,
     (rect.height / 100) * canvas.height,
   );
-  return canvas.toDataURL("image/jpeg", 0.95);
+  return canvas.toDataURL("image/jpeg", 0.88);
 }
 
 /** Converts a ScriptImage into a header-masked base64 JPEG payload safe for external AI provider calls. */
@@ -35,12 +48,24 @@ export async function imageToMaskedBase64(image: ScriptImage): Promise<{ mimeTyp
       ? image.maskedUrl || (await createMaskedCopy(image.originalUrl, image.maskRect))
       : await (async () => {
           const img = await loadImage(image.originalUrl);
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          const MAX_DIM = 1800;
+          if (Math.max(w, h) > MAX_DIM) {
+            if (w > h) {
+              h = Math.round((h * MAX_DIM) / w);
+              w = MAX_DIM;
+            } else {
+              w = Math.round((w * MAX_DIM) / h);
+              h = MAX_DIM;
+            }
+          }
           const canvas = document.createElement("canvas");
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
+          canvas.width = w;
+          canvas.height = h;
           const ctx = canvas.getContext("2d")!;
-          ctx.drawImage(img, 0, 0);
-          return canvas.toDataURL("image/jpeg", 0.95);
+          ctx.drawImage(img, 0, 0, w, h);
+          return canvas.toDataURL("image/jpeg", 0.88);
         })();
 
   const [header, base64Data] = dataUrl.split(",");

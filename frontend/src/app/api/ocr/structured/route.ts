@@ -9,7 +9,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(120000),
     });
 
     const data = await res.json().catch(() => null);
@@ -25,12 +25,15 @@ export async function POST(request: Request) {
 
     return NextResponse.json(data);
   } catch (err) {
+    const isTimeout = err instanceof Error && (err.name === "TimeoutError" || err.message.includes("timeout") || err.message.includes("aborted"));
     return NextResponse.json(
       {
         ok: false,
-        error: err instanceof Error ? err.message : "Structured OCR proxy request failed",
+        error: isTimeout
+          ? "AI extraction timed out. The model is taking longer than expected on large/dense pages. Please retry or map specific question regions."
+          : (err instanceof Error ? err.message : "Structured OCR proxy request failed"),
       },
-      { status: 502 },
+      { status: 504 },
     );
   }
 }

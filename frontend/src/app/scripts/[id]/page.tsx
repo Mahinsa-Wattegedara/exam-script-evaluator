@@ -263,7 +263,18 @@ export default function ScriptWorkspacePage() {
         </button>
       </div>
 
-      {ocrError && <Alert tone="red" title="Extraction error">{ocrError}</Alert>}
+      {ocrError && (
+        <Alert tone="red" title="Extraction error">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <span>{ocrError}</span>
+            <div className="flex items-center gap-2 shrink-0 pt-1 sm:pt-0">
+              <Button size="sm" onClick={() => { setOcrError(""); runAutoStructuredOcr(); }}>
+                Retry extraction
+              </Button>
+            </div>
+          </div>
+        </Alert>
+      )}
 
       {tab === "order" && (
         <Card>

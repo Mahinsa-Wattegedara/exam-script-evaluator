@@ -106,15 +106,20 @@ TASK:
 
 
 def _enhance_image_b64_for_ocr(mime_type: str, base64_data: str) -> tuple[str, str]:
-    """Applies mild autocontrast & sharpening so faint pencil/pen handwriting is crisp."""
+    """
+    Downscales large phone/scanner images to max 1800px, applies mild autocontrast & sharpening,
+    and encodes as optimized JPEG so uploads are fast (<500KB) and handwriting is crisp.
+    """
     try:
         raw_bytes = base64.b64decode(base64_data)
         pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        if max(pil_img.size) > 1800:
+            pil_img.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
         pil_img = ImageOps.autocontrast(pil_img, cutoff=1)
-        pil_img = ImageEnhance.Sharpness(pil_img).enhance(1.3)
+        pil_img = ImageEnhance.Sharpness(pil_img).enhance(1.25)
         out = io.BytesIO()
-        pil_img.save(out, format="PNG", optimize=True)
-        return "image/png", base64.b64encode(out.getvalue()).decode("ascii")
+        pil_img.save(out, format="JPEG", quality=88, optimize=True)
+        return "image/jpeg", base64.b64encode(out.getvalue()).decode("ascii")
     except Exception:
         return mime_type or "image/jpeg", base64_data
 
@@ -130,7 +135,7 @@ async def _call_gemini_vision_json(
     and fallback only when Google returns HTTP 429 (quota exhausted) or 503 (overload).
     """
     candidate_models = [model] + [
-        m for m in ("gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite") if m != model
+        m for m in ("gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite-preview", "gemini-flash-latest") if m != model
     ]
 
     resp = None
@@ -315,12 +320,19 @@ async def extract_structured_from_regions(
             order.append(reg.questionId)
         grouped[reg.questionId].append(reg)
 
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        # Run question extractions concurrently in parallel
+        tasks = [
+            _extract_single_question_ocr(client, api_key, model, q_id, grouped[q_id])
+            for q_id in order
+        ]
+        q_results = await asyncio.gather(*tasks)
+
     used_model = model
     results: list[StructuredQuestionResultSchema] = []
-    async with httpx.AsyncClient(timeout=40.0) as client:
-        for q_id in order:
-            used_model, res = await _extract_single_question_ocr(client, api_key, model, q_id, grouped[q_id])
-            results.append(res)
+    for m, res in q_results:
+        used_model = m
+        results.append(res)
 
     return used_model, results
 
@@ -343,7 +355,7 @@ async def extract_structured_from_pages(
         parts.append({"text": f"Page {idx + 1}:"})
         parts.append({"inlineData": {"mimeType": mime, "data": b64}})
 
-    async with httpx.AsyncClient(timeout=55.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         active_model, parsed = await _call_gemini_vision_json(client, api_key, model, parts)
 
     raw_questions = parsed.get("questions", [])
