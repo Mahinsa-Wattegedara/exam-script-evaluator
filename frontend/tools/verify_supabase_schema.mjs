@@ -78,7 +78,7 @@ try {
     console.log("\n SUCCESS: All 18 FIXED_ER tables are live, configured, and accessible in Supabase!");
   } else {
     console.log(`\n Missing ${missing.length} tables:`, missing);
-    console.log("Run the migration 002_fixed_er_complete_schema.sql in the Supabase Dashboard SQL Editor.");
+    console.log("Run the migration backend/supabase/migrations/001_fixed_er_complete_schema.sql in the Supabase Dashboard SQL Editor.");
   }
 } catch (err) {
   console.error("Error checking Supabase schema:", err);
