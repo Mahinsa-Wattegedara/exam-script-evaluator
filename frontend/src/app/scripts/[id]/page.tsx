@@ -312,83 +312,165 @@ export default function ScriptWorkspacePage() {
       )}
 
       {tab === "mask" && currentImg && (
-        <div className="grid gap-6 xl:grid-cols-3">
-          <Card className="xl:col-span-2">
+        <div className="flex flex-col lg:flex-row items-start gap-6">
+          <Card className="flex-1 min-w-0 w-full">
             <CardHeader
               title={`Mask header — Page ${currentImg.pageNumber}`}
-              right={<MaskBadge s={currentImg.maskStatus} />}
+              right={
+                <div className="flex items-center gap-2">
+                  <MaskBadge s={currentImg.maskStatus} />
+                </div>
+              }
             />
-            <div className="p-5">
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                {imgs.map((im) => (
-                  <button
-                    key={im.id}
-                    onClick={() => setSelectedImageId(im.id)}
-                    className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                      im.id === currentImg.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    }`}
+            <div className="p-4 sm:p-5 space-y-4">
+              {/* Page Navigator bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {imgs.map((im) => (
+                    <button
+                      key={im.id}
+                      onClick={() => setSelectedImageId(im.id)}
+                      className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+                        im.id === currentImg.id
+                          ? "bg-[color:var(--x-ink,#111827)] text-white shadow-xs"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      <span>Page {im.pageNumber}</span>
+                      <MaskBadge s={im.maskStatus} />
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    disabled={imgs.findIndex((i) => i.id === currentImg.id) === 0}
+                    onClick={() => {
+                      const idx = imgs.findIndex((i) => i.id === currentImg.id);
+                      if (idx > 0) setSelectedImageId(imgs[idx - 1].id);
+                    }}
                   >
-                    <span>Page {im.pageNumber}</span>
-                    <MaskBadge s={im.maskStatus} />
-                  </button>
-                ))}
+                    ← Prev
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={imgs.findIndex((i) => i.id === currentImg.id) === imgs.length - 1}
+                    onClick={() => {
+                      const idx = imgs.findIndex((i) => i.id === currentImg.id);
+                      if (idx < imgs.length - 1) setSelectedImageId(imgs[idx + 1].id);
+                    }}
+                  >
+                    Next →
+                  </Button>
+                </div>
               </div>
 
-              <div className="mx-auto max-w-2xl overflow-hidden rounded-lg border border-slate-300 bg-white">
-                <ReactCrop crop={maskCrop} onChange={(_, pctCrop) => setMaskCrop(pctCrop)} className="block w-full">
-                  <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={currentImg.originalUrl}
-                      alt={`Page ${currentImg.pageNumber}`}
-                      className="block h-auto w-full select-none"
-                      draggable={false}
-                    />
-                    {currentImg.maskStatus === "MASKED" && currentImg.maskRect && (
-                      <div
-                        className="pointer-events-none absolute flex items-center justify-center bg-slate-900 text-xs font-medium text-slate-300"
-                        style={{
-                          left: `${currentImg.maskRect.x}%`,
-                          top: `${currentImg.maskRect.y}%`,
-                          width: `${currentImg.maskRect.width}%`,
-                          height: `${currentImg.maskRect.height}%`,
-                        }}
-                      >
-                        Header masked
-                      </div>
-                    )}
-                  </div>
-                </ReactCrop>
+              {/* Scrollable image viewport - Constrained to max-h so it never pushes controls away */}
+              <div className="max-h-[600px] overflow-auto rounded-xl border border-slate-200 bg-slate-100/70 p-3 sm:p-4 flex justify-center items-start shadow-inner">
+                <div className="max-w-2xl w-full overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+                  <ReactCrop crop={maskCrop} onChange={(_, pctCrop) => setMaskCrop(pctCrop)} className="block w-full">
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={currentImg.originalUrl}
+                        alt={`Page ${currentImg.pageNumber}`}
+                        className="block h-auto w-full select-none"
+                        draggable={false}
+                      />
+                      {currentImg.maskStatus === "MASKED" && currentImg.maskRect && (
+                        <div
+                          className="pointer-events-none absolute flex items-center justify-center bg-slate-900/90 text-xs font-semibold text-slate-200 shadow-md border border-slate-700"
+                          style={{
+                            left: `${currentImg.maskRect.x}%`,
+                            top: `${currentImg.maskRect.y}%`,
+                            width: `${currentImg.maskRect.width}%`,
+                            height: `${currentImg.maskRect.height}%`,
+                          }}
+                        >
+                          🔒 Header masked
+                        </div>
+                      )}
+                    </div>
+                  </ReactCrop>
+                </div>
               </div>
+              <p className="text-center text-xs text-slate-500">
+                Tip: Click and drag a rectangle over the student identity header (name, ID). Scroll vertically inside the container to see full page.
+              </p>
             </div>
           </Card>
 
-          <div className="space-y-4">
+          {/* Right Sidebar: Sticky Actions Panel */}
+          <div className="w-full lg:w-80 xl:w-88 shrink-0 lg:sticky lg:top-6 space-y-4">
             <Card>
-              <CardHeader title="Actions" />
-              <div className="space-y-2.5 p-5">
-                <Button
-                  variant="primary"
-                  className="w-full"
-                  onClick={() => actions.applyMask(script.id, currentImg.id, toRect(maskCrop))}
-                >
-                  Apply mask
-                </Button>
-                <Button
-                  className="w-full"
-                  onClick={() => actions.setNoHeader(script.id, currentImg.id)}
-                >
-                  No header on this page
-                </Button>
-                {currentImg.maskStatus !== "PENDING" && (
-                  <Button variant="ghost" size="sm" className="w-full" onClick={() => actions.clearMask(script.id, currentImg.id)}>
-                    Clear mask
+              <CardHeader
+                title="Masking actions"
+                right={<span className="text-xs text-slate-500">Page {currentImg.pageNumber}/{imgs.length}</span>}
+              />
+              <div className="space-y-3 p-5">
+                <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-800 mb-0.5">Step 2: Anonymization</p>
+                  Drag to select student details and click <strong className="text-indigo-700">Apply mask</strong>, or mark as having no header.
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <Button
+                    variant="primary"
+                    className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
+                    onClick={() => {
+                      actions.applyMask(script.id, currentImg.id, toRect(maskCrop));
+                      const nextUnmasked = imgs.find((im) => im.id !== currentImg.id && im.maskStatus === "PENDING");
+                      if (nextUnmasked) {
+                        setSelectedImageId(nextUnmasked.id);
+                      }
+                    }}
+                  >
+                    Apply mask
                   </Button>
-                )}
-                <div className="border-t border-slate-100 pt-3">
-                  <Button variant="success" className="w-full" disabled={!allMasked} onClick={() => setTab("map")}>
+                  <Button
+                    className="w-full justify-center py-2 text-xs font-medium bg-white hover:bg-slate-50 border border-slate-200"
+                    onClick={() => {
+                      actions.setNoHeader(script.id, currentImg.id);
+                      const nextUnmasked = imgs.find((im) => im.id !== currentImg.id && im.maskStatus === "PENDING");
+                      if (nextUnmasked) {
+                        setSelectedImageId(nextUnmasked.id);
+                      }
+                    }}
+                  >
+                    No header on this page
+                  </Button>
+                  {currentImg.maskStatus !== "PENDING" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-center text-xs text-slate-500 hover:text-rose-600"
+                      onClick={() => actions.clearMask(script.id, currentImg.id)}
+                    >
+                      Clear mask
+                    </Button>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-100 pt-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Masking status:</span>
+                    <span className="font-semibold text-slate-800">
+                      {imgs.filter((i) => i.maskStatus !== "PENDING").length} of {imgs.length} completed
+                    </span>
+                  </div>
+                  <Button
+                    variant="success"
+                    className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
+                    disabled={!allMasked}
+                    onClick={() => setTab("map")}
+                  >
                     Continue to mapping →
                   </Button>
+                  {!allMasked && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg p-2 border border-amber-200/80">
+                      Please mask or confirm all {imgs.length} pages before proceeding.
+                    </p>
+                  )}
                 </div>
               </div>
             </Card>
@@ -397,8 +479,8 @@ export default function ScriptWorkspacePage() {
       )}
 
       {tab === "map" && currentImg && (
-        <div className="grid gap-6 xl:grid-cols-3">
-          <Card className="xl:col-span-2">
+        <div className="flex flex-col lg:flex-row items-start gap-6">
+          <Card className="flex-1 min-w-0 w-full">
             <CardHeader
               title={`Map answer regions — Page ${currentImg.pageNumber}`}
               right={
@@ -421,48 +503,79 @@ export default function ScriptWorkspacePage() {
                 </div>
               }
             />
-            <div className="p-5">
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                {imgs.map((im) => {
-                  const cnt = scriptRegions.filter((r) => r.imageId === im.id).length;
-                  return (
-                    <button
-                      key={im.id}
-                      onClick={() => setSelectedImageId(im.id)}
-                      className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                        im.id === currentImg.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      <span>Page {im.pageNumber}</span>
-                      <Badge tone={cnt > 0 ? "indigo" : "slate"}>{cnt}</Badge>
-                    </button>
-                  );
-                })}
+            <div className="p-4 sm:p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {imgs.map((im) => {
+                    const cnt = scriptRegions.filter((r) => r.imageId === im.id).length;
+                    return (
+                      <button
+                        key={im.id}
+                        onClick={() => setSelectedImageId(im.id)}
+                        className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+                          im.id === currentImg.id
+                            ? "bg-[color:var(--x-ink,#111827)] text-white shadow-xs"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <span>Page {im.pageNumber}</span>
+                        <Badge tone={cnt > 0 ? "indigo" : "slate"}>{cnt}</Badge>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    disabled={imgs.findIndex((i) => i.id === currentImg.id) === 0}
+                    onClick={() => {
+                      const idx = imgs.findIndex((i) => i.id === currentImg.id);
+                      if (idx > 0) setSelectedImageId(imgs[idx - 1].id);
+                    }}
+                  >
+                    ← Prev
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={imgs.findIndex((i) => i.id === currentImg.id) === imgs.length - 1}
+                    onClick={() => {
+                      const idx = imgs.findIndex((i) => i.id === currentImg.id);
+                      if (idx < imgs.length - 1) setSelectedImageId(imgs[idx + 1].id);
+                    }}
+                  >
+                    Next →
+                  </Button>
+                </div>
               </div>
 
-              <div className="mx-auto max-w-2xl overflow-hidden rounded-lg border border-slate-300 bg-white">
-                <ReactCrop crop={regionCrop} onChange={(_, pctCrop) => setRegionCrop(pctCrop)} className="block w-full">
-                  <PageImage
-                    image={currentImg}
-                    overlays={pageRegions.map((r) => {
-                      const idx = qIndex(r.questionId);
-                      const totalParts = scriptRegions.filter((x) => x.questionId === r.questionId).length;
-                      return {
-                        id: r.id,
-                        rect: r.bbox,
-                        color: QUESTION_COLORS[idx % QUESTION_COLORS.length],
-                        active: r.id === activeRegionId,
-                        label: `${qNum(r.questionId)}${totalParts > 1 ? ` (${r.sequenceOrder}/${totalParts})` : ""}`,
-                        onClick: () => setActiveRegionId(r.id),
-                      };
-                    })}
-                  />
-                </ReactCrop>
+              <div className="max-h-[600px] overflow-auto rounded-xl border border-slate-200 bg-slate-100/70 p-3 sm:p-4 flex justify-center items-start shadow-inner">
+                <div className="max-w-2xl w-full overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+                  <ReactCrop crop={regionCrop} onChange={(_, pctCrop) => setRegionCrop(pctCrop)} className="block w-full">
+                    <PageImage
+                      image={currentImg}
+                      overlays={pageRegions.map((r) => {
+                        const idx = qIndex(r.questionId);
+                        const totalParts = scriptRegions.filter((x) => x.questionId === r.questionId).length;
+                        return {
+                          id: r.id,
+                          rect: r.bbox,
+                          color: QUESTION_COLORS[idx % QUESTION_COLORS.length],
+                          active: r.id === activeRegionId,
+                          label: `${qNum(r.questionId)}${totalParts > 1 ? ` (${r.sequenceOrder}/${totalParts})` : ""}`,
+                          onClick: () => setActiveRegionId(r.id),
+                        };
+                      })}
+                    />
+                  </ReactCrop>
+                </div>
               </div>
+              <p className="text-center text-xs text-slate-500">
+                Tip: Draw a box around each handwritten answer region, select the corresponding question in the sidebar, and click Assign.
+              </p>
             </div>
           </Card>
 
-          <div className="space-y-4">
+          <div className="w-full lg:w-80 xl:w-88 shrink-0 lg:sticky lg:top-6 space-y-4">
             <Card>
               <CardHeader
                 title="Assign region"
@@ -482,7 +595,7 @@ export default function ScriptWorkspacePage() {
                         key={q.id}
                         type="button"
                         onClick={() => setSelectedQuestionId(q.id)}
-                        className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                        className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition cursor-pointer ${
                           active ? "border-indigo-600 bg-indigo-50 text-indigo-900" : "border-slate-200 hover:bg-slate-50"
                         }`}
                       >
@@ -498,7 +611,7 @@ export default function ScriptWorkspacePage() {
 
                 <Button
                   variant="primary"
-                  className="w-full"
+                  className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
                   onClick={() => actions.addRegion(script.id, currentImg.id, selectedQuestionId, toRect(regionCrop))}
                 >
                   + Assign to {qNum(selectedQuestionId)}
@@ -508,7 +621,7 @@ export default function ScriptWorkspacePage() {
 
             <Card>
               <CardHeader title={`Mapped regions (${scriptRegions.length})`} />
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto">
                 {state.assessment.questions.map((q) => {
                   const regs = scriptRegions
                     .filter((r) => r.questionId === q.id)

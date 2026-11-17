@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageImage, RegionCrop } from "@/components/PageImage";
 import {
   Alert,
@@ -22,12 +22,14 @@ import { useStore } from "@/lib/store";
 
 export function ReviewQueueInner() {
   const { state, actions } = useStore();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const scriptParam = searchParams.get("script");
   const answerParam = searchParams.get("answer");
 
   const [activeTab, setActiveTab] = useState<"NEEDS_DECISION" | "AUDIT" | "ALL">("NEEDS_DECISION");
   const [selectedAnswerId, setSelectedAnswerId] = useState<string | null>(null);
+  const [dismissedParam, setDismissedParam] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(1);
   const [showFullPage, setShowFullPage] = useState<boolean>(false);
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export function ReviewQueueInner() {
   const [decisionSuccess, setDecisionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    if (selectedAnswerId) return;
+    if (selectedAnswerId || dismissedParam) return;
     if (answerParam) {
       setSelectedAnswerId(answerParam);
     } else if (scriptParam) {
@@ -46,7 +48,13 @@ export function ReviewQueueInner() {
         setSelectedAnswerId(match.id);
       }
     }
-  }, [scriptParam, answerParam, selectedAnswerId, state.answers]);
+  }, [scriptParam, answerParam, selectedAnswerId, dismissedParam, state.answers]);
+
+  const handleBackToQueue = () => {
+    setDismissedParam(true);
+    setSelectedAnswerId(null);
+    router.replace("/review");
+  };
 
   const scriptOf = (scriptId: string) => state.scripts.find((s) => s.id === scriptId);
   const questionOf = (qid: string) => state.assessment.questions.find((q) => q.id === qid);
@@ -280,7 +288,10 @@ export function ReviewQueueInner() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
-                              onClick={() => setSelectedAnswerId(ans.id)}
+                              onClick={() => {
+                                setDismissedParam(false);
+                                setSelectedAnswerId(ans.id);
+                              }}
                               className="inline-flex h-9 items-center justify-center rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-4 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] shadow-sm hover:bg-slate-50 transition cursor-pointer"
                             >
                               Review answer →
@@ -310,10 +321,10 @@ export function ReviewQueueInner() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setSelectedAnswerId(null)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
+                  onClick={handleBackToQueue}
+                  className="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
-                  ← Back to queue
+                  <span>←</span> Back to queue
                 </button>
                 <h1 className="font-['Plus_Jakarta_Sans'] text-2xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
                   Review transcript · {currentScript?.pseudonymousCode || "Script"} / {currentQuestion?.number || "Question"}
@@ -342,10 +353,10 @@ export function ReviewQueueInner() {
           )}
 
           {/* SIDE-BY-SIDE: Original Image (Left) & Extracted Transcript (Right) */}
-          <div className="grid gap-6 lg:grid-cols-2 items-start">
+          <div className="grid gap-6 lg:grid-cols-2 items-stretch">
             {/* Left Column: Original Handwritten Script Image */}
-            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div className="flex flex-col h-[600px] rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 shrink-0 min-h-[58px]">
                 <div>
                   <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
                     Original handwritten script
@@ -414,7 +425,7 @@ export function ReviewQueueInner() {
               </div>
 
               {/* Scrollable / Zoomable Image Viewport */}
-              <div className="h-[520px] max-h-[520px] overflow-auto rounded-xl border border-slate-200 bg-slate-900/5 p-3 flex flex-col items-center justify-start relative select-none">
+              <div className="mt-4 flex-1 min-h-0 overflow-auto rounded-xl border border-slate-200 bg-slate-900/5 p-3 flex flex-col items-center justify-start relative select-none">
                 {targetImage ? (
                   showFullPage || answerRegions.length === 0 ? (
                     <div style={{ width: `${zoom * 100}%`, minWidth: "100%", transition: "width 0.15s ease-out" }}>
@@ -454,9 +465,9 @@ export function ReviewQueueInner() {
               </div>
             </div>
 
-            {/* Right Column: Approved Answer (Extracted Transcript - Scrollable within screen) */}
-            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            {/* Right Column: Approved Answer (Extracted Transcript) */}
+            <div className="flex flex-col h-[600px] rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 shrink-0 min-h-[58px]">
                 <div>
                   <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
                     Approved answer
@@ -498,7 +509,7 @@ export function ReviewQueueInner() {
               </div>
 
               {/* Scrollable Extracted Transcript Container */}
-              <div className="h-[520px] max-h-[520px] overflow-y-auto rounded-xl bg-slate-50 p-4 font-mono text-xs sm:text-sm leading-relaxed text-[color:var(--x-ink,#111827)] border border-slate-200 divide-y divide-slate-200/60 shadow-inner">
+              <div className="mt-4 flex-1 min-h-0 overflow-y-auto rounded-xl bg-slate-50 p-4 font-mono text-xs sm:text-sm leading-relaxed text-[color:var(--x-ink,#111827)] border border-slate-200 divide-y divide-slate-200/60 shadow-inner">
                 {curVersion && curVersion.spans.length > 0 ? (
                   curVersion.spans.map((sp) => (
                     <div key={sp.id} className="flex items-start gap-3 py-1.5 hover:bg-slate-100/80 px-1.5 rounded transition-colors">
@@ -520,21 +531,21 @@ export function ReviewQueueInner() {
 
           {/* Teacher Review Actions & Flags Section */}
           <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
                 <h3 className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
                   Transcript verification &amp; routing
                 </h3>
-                <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">
+                <p className="text-xs text-[color:var(--x-secondary,#4b5563)] mt-0.5">
                   Confirm accuracy against the handwritten script before releasing to AI evaluation.
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setSelectedAnswerId(null)}
-                  className="h-11 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-5 text-xs font-semibold text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-50 transition cursor-pointer"
+                  onClick={handleBackToQueue}
+                  className="h-10 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-5 text-xs font-semibold text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-50 transition cursor-pointer"
                 >
                   Close
                 </button>
@@ -544,9 +555,9 @@ export function ReviewQueueInner() {
                       type="button"
                       onClick={() => {
                         actions.routeManual(currentAnswer.id, "Requires human manual grading");
-                        setSelectedAnswerId(null);
+                        handleBackToQueue();
                       }}
-                      className="h-11 rounded-xl border border-amber-300 bg-amber-50 px-5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition cursor-pointer"
+                      className="h-10 rounded-xl border border-amber-300 bg-amber-50 px-5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition cursor-pointer"
                     >
                       Route to manual marking
                     </button>
@@ -556,11 +567,11 @@ export function ReviewQueueInner() {
                         actions.approve(currentAnswer.id);
                         setDecisionSuccess(`Approved transcript v${curVersion?.version || 1} for ${currentScript?.pseudonymousCode || "script"}! Ready for AI evaluation.`);
                         setTimeout(() => {
-                          setSelectedAnswerId(null);
+                          handleBackToQueue();
                           setDecisionSuccess(null);
-                        }, 1500);
+                        }, 1200);
                       }}
-                      className="h-11 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-xs font-semibold text-white hover:bg-indigo-700 transition cursor-pointer shadow-xs"
+                      className="h-10 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-xs font-semibold text-white hover:bg-indigo-700 transition cursor-pointer shadow-xs"
                     >
                       Approve transcript for AI evaluation →
                     </button>
