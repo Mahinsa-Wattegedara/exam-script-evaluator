@@ -122,7 +122,7 @@ export type TextSpan = {
   id: string; // e.g. L3-S2 (M1-04)
   line: number;
   text: string;
-  confidence: number | "unknown"; // absent confidence recorded as unknown (M1-02)
+  confidence: number | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN" | "unknown"; // Gemini Vision categorical or legacy float
   regionId: string; // traces span to image crop
   edited?: boolean;
 };

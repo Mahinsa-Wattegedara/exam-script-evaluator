@@ -86,12 +86,18 @@ export function extractAnswer(
       segs.forEach(([text, confidence], k) => {
         const id = `L${line}-S${k + 1}`;
         spans.push({ id, line, text, confidence, regionId: r.id });
-        if (typeof confidence === "number" && confidence < LOW_CONFIDENCE) {
+        const confStr = String(confidence).toUpperCase();
+        const isLow =
+          (typeof confidence === "number" && confidence < LOW_CONFIDENCE) ||
+          confStr === "LOW" ||
+          confStr === "UNKNOWN";
+        if (isLow) {
+          const confLabel = typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : String(confidence);
           flags.push({
             id: uid("flag"),
             type: "UNCLEAR_CHAR",
             spanId: id,
-            message: `Low OCR confidence (${Math.round(confidence * 100)}%) for "${text}" on page ${img?.pageNumber}.`,
+            message: `Low OCR confidence (${confLabel}) for "${text}" on page ${img?.pageNumber}.`,
             resolved: false,
           });
         }

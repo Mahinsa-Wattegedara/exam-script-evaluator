@@ -2,7 +2,7 @@
 Module 1 (Script Intake and Answer Evidence) Pydantic v2 Schemas.
 Aligned with SRS Section 4.3 & 4.4 (ExternalInterfaces.docx).
 """
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -83,7 +83,7 @@ class ExtractedSpanSchema(BaseModel):
     id: str
     lineNumber: int = Field(..., ge=1)
     text: str
-    confidence: float = Field(..., ge=0.0, le=1.0)
+    confidence: Union[float, str] = Field(default="HIGH")
 
 
 class ExtractedFlagSchema(BaseModel):

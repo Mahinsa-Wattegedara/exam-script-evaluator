@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed } from "./seed";
-import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, UploadFailure, UserRole } from "./types";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "m1-enterprise-state-v3";
 const ACTOR = "Dr. S. Silva";
@@ -358,7 +358,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         bbox?: Rect;
         rawText: string;
         blankDetected: boolean;
-        spans: { id: string; lineNumber: number; text: string; confidence: number }[];
+        spans: { id: string; lineNumber: number; text: string; confidence: number | string }[];
         flags: { type: FlagType; message: string; spanId?: string }[];
       }[],
       replaceAllRegions = false,
@@ -425,7 +425,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
                   id: sp.id,
                   line: sp.lineNumber,
                   text: sp.text,
-                  confidence: sp.confidence,
+                  confidence: sp.confidence as TextSpan["confidence"],
                   regionId: regs[0]?.id ?? res.questionId,
                   edited: false,
                 })),

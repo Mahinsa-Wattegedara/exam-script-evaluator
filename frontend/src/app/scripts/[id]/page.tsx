@@ -130,7 +130,7 @@ export default function ScriptWorkspacePage() {
           bbox?: Rect;
           rawText: string;
           blankDetected: boolean;
-          spans: { id: string; lineNumber: number; text: string; confidence: number }[];
+          spans: { id: string; lineNumber: number; text: string; confidence: number | string }[];
           flags: { type: FlagType; message: string; spanId?: string }[];
         }[];
         error?: string;
@@ -194,7 +194,7 @@ export default function ScriptWorkspacePage() {
           bbox?: Rect;
           rawText: string;
           blankDetected: boolean;
-          spans: { id: string; lineNumber: number; text: string; confidence: number }[];
+          spans: { id: string; lineNumber: number; text: string; confidence: number | string }[];
           flags: { type: FlagType; message: string; spanId?: string }[];
         }[];
         error?: string;

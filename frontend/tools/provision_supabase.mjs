@@ -238,7 +238,7 @@ await postTable("answers", [
     question_id: "q1",
     transcript_text: "Research suggests that note taking is most effective when done by hand. Yes, handwritten notes. Certainly, typewritten or typed out notes are more efficient, however notes written by hand are retained by the human brain much longer. Integrating handwritten notes into a computer based productivity workflow is tricky, too. In terms of hardware, if all you have is a smartphone, then we need to deal with the situation a bit differently. This talk will introduce to you a simple system to integrate handwritten notes into your org-mode (Emacs) based productivity workflow.",
     transcript_version: 1,
-    ocr_confidence: 0.965,
+    ocr_confidence: "HIGH",
     approval_status: "APPROVED",
     approved_by: TEACHER_UID,
     evidence_spans: [
@@ -253,7 +253,7 @@ await postTable("answers", [
     question_id: "q1",
     transcript_text: "Taking notes with pen and paper allows better memory retention compared to typing. Although slower, handwritten notes require mental synthesis. Emacs org-mode workflows can incorporate scanned notes or camera captures using OCR tools.",
     transcript_version: 1,
-    ocr_confidence: 0.942,
+    ocr_confidence: "HIGH",
     approval_status: "APPROVED",
     approved_by: TEACHER_UID,
     evidence_spans: [
