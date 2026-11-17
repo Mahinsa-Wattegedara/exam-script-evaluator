@@ -4,12 +4,23 @@
   --x-sidebar: #14123b;
   --x-primary700: #3730a3;
   --x-primary600: #4338ca;
+  --x-primary100: #e0e3ff;
   --x-primary50: #f0f1ff;
+  --x-surface: #ffffff;
   --x-bg: #f5f6fa;
   --x-border: #e4e7ef;
   --x-ink: #111827;
   --x-secondary: #4b5563;
   --x-muted: #6b7280;
+  --x-warningTint: #fef3c7;
+  --x-warning: #d97706;
+  --x-dangerTint: #fee2e2;
+  --x-danger: #dc2626;
+  --x-Moderatortint: #d1fae5;
+  --x-Teachertint: #ede9fe;
+  --x-Teacher: #7c3aed;
+  --x-Atint: #dbeafe;
+  --x-Btint: #ffedd5;
 }
 
 @theme {

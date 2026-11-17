@@ -1,16 +1,16 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui";
+import { Alert, Badge, Button } from "@/components/ui";
 import { formatBytes, loadImage, putBlob } from "@/lib/image-utils";
 import { MAX_FILE_BYTES, MAX_IMAGES_PER_SCRIPT, MAX_SCRIPTS, nowIso, pseudonym, uid } from "@/lib/logic";
 import { useStore } from "@/lib/store";
-import type { PaperType, ScriptImage, UploadFailure } from "@/lib/types";
+import type { ScriptImage, UploadFailure } from "@/lib/types";
 
 type Staged = {
   id: string;
   file: File;
-  group: string; // grouping key (filename prefix or chosen script)
+  group: string;
   sampleKey?: string;
   previewUrl?: string;
   width?: number;
@@ -36,7 +36,6 @@ export default function UploadPage() {
   const [target, setTarget] = useState<string>("new");
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [realIds, setRealIds] = useState<Record<string, string>>({});
-  const [simulateFailure, setSimulateFailure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<{ ok: number; failed: number; scripts: string[] } | null>(null);
   const [drag, setDrag] = useState(false);
@@ -49,7 +48,7 @@ export default function UploadPage() {
     if (!OK_TYPES.includes(file.type) || !OK_EXT.test(file.name)) {
       st.error = `Unsupported file type (${file.type || "unknown"}). Only JPEG and PNG images are accepted.`;
     } else if (file.size > MAX_FILE_BYTES) {
-      st.error = `File is ${formatBytes(file.size)}; the maximum is 10 MB per image.`;
+      st.error = `File is ${formatBytes(file.size)}; maximum is 10 MB per image.`;
     } else {
       st.previewUrl = URL.createObjectURL(file);
       try {
@@ -69,24 +68,6 @@ export default function UploadPage() {
     setSummary(null);
   }
 
-  async function loadSampleBatch() {
-    const list: [string, string, string][] = [
-      ["script1_page1.png", "studentA_p1.png", "s1p1"],
-      ["script1_page3.png", "studentA_p3.png", "s1p3"],
-      ["script1_page2.png", "studentA_p2.png", "s1p2"],
-      ["script2_page1.png", "studentB_p1.png", "s2p1"],
-      ["script2_page2.png", "studentB_p2.png", "s2p2"],
-    ];
-    const files = await Promise.all(
-      list.map(async ([src, name]) => new File([await (await fetch(`/samples/${src}`)).blob()], name, { type: "image/png" })),
-    );
-    // two invalid files to demonstrate per-file validation
-    files.push(new File(["%PDF-1.7 mock"], "studentB_p3.pdf", { type: "application/pdf" }));
-    files.push(new File([new Uint8Array(11 * 1024 * 1024)], "studentA_p4.jpg", { type: "image/jpeg" }));
-    await addFiles(files, [...list.map((l) => l[2]), undefined, undefined]);
-  }
-
-  // group staged files -> scripts, enforcing per-script and per-assessment limits
   const groups = useMemo(() => {
     const g = new Map<string, Staged[]>();
     staged.forEach((s) => {
@@ -102,6 +83,7 @@ export default function UploadPage() {
     if (mode === "single" && target !== "new") return state.scripts.find((s) => s.id === target)?.pseudonymousCode ?? "?";
     return codes[key] ?? "";
   }
+
   function ensureCodes() {
     const next = { ...codes };
     groups.forEach(([k]) => {
@@ -111,26 +93,27 @@ export default function UploadPage() {
     return next;
   }
 
-  function limitError(key: string, idx: number): string | undefined {
-    const existing = mode === "single" && target !== "new" ? state.scripts.find((s) => s.id === target)?.images.length ?? 0 : 0;
-    if (existing + idx + 1 > MAX_IMAGES_PER_SCRIPT) return `Script would exceed ${MAX_IMAGES_PER_SCRIPT} images.`;
-    const newScripts = mode === "prefix" || target === "new" ? groups.length : 0;
-    if (state.scripts.length + newScripts > MAX_SCRIPTS) return `Assessment would exceed ${MAX_SCRIPTS} scripts.`;
-    void key;
-    return undefined;
+  function moveItem(key: string, fromIdx: number, toIdx: number) {
+    const groupItems = staged.filter((s) => groupKey(s) === key);
+    if (toIdx < 0 || toIdx >= groupItems.length) return;
+    const moved = [...groupItems];
+    const [item] = moved.splice(fromIdx, 1);
+    moved.splice(toIdx, 0, item);
+
+    // Reconstruct staged array with updated group order
+    const otherItems = staged.filter((s) => groupKey(s) !== key);
+    setStaged([...otherItems, ...moved]);
   }
 
   async function upload() {
     setBusy(true);
     const c = ensureCodes();
     const work = staged.filter((s) => s.state !== "done");
-    const failSim = simulateFailure ? work.find((s) => !s.error)?.id : undefined;
     setStaged((p) => p.map((s) => (s.state !== "done" ? { ...s, state: "uploading", progress: 0 } : s)));
 
-    // simulated transfer progress (frontend demo)
     for (let step = 1; step <= 10; step++) {
-      await new Promise((r) => setTimeout(r, 120));
-      setStaged((p) => p.map((s) => (s.state === "uploading" ? { ...s, progress: s.error || s.id === failSim ? Math.min(step * 10, 40) : step * 10 } : s)));
+      await new Promise((r) => setTimeout(r, 60));
+      setStaged((p) => p.map((s) => (s.state === "uploading" ? { ...s, progress: s.error ? Math.min(step * 10, 40) : step * 10 } : s)));
     }
 
     const failures: UploadFailure[] = [];
@@ -141,7 +124,7 @@ export default function UploadPage() {
       let okIdx = 0;
       for (const s of items) {
         if (s.state === "done") continue;
-        const err = s.error ?? (s.id === failSim ? "Network error: connection reset during transfer. Retry this file." : limitError(key, okIdx));
+        const err = s.error;
         if (err) {
           failures.push({ id: uid("fail"), fileName: s.file.name, scriptCode: code, reason: err, at: nowIso() });
           finalState.set(s.id, "failed");
@@ -157,7 +140,7 @@ export default function UploadPage() {
           fileSizeBytes: s.file.size,
           originalUrl: URL.createObjectURL(s.file),
           maskStatus: "PENDING",
-          pageNumber: 0,
+          pageNumber: okIdx + 1,
           width: s.width!,
           height: s.height!,
           sampleKey: s.sampleKey,
@@ -182,207 +165,271 @@ export default function UploadPage() {
     setBusy(false);
   }
 
-  const retryFailed = () => {
-    setSimulateFailure(false);
-    setStaged((p) => p.filter((s) => s.state !== "done").map((s) => ({ ...s, state: "staged", progress: 0 })));
-    setSummary(null);
-  };
-
   const validCount = staged.filter((s) => !s.error && s.state !== "done").length;
+  const attentionCount = staged.filter((s) => s.error || s.state === "failed").length;
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Upload Scripts" />
+    <div className="space-y-6 pb-12">
+      {/* Page Header (Figma 19:226) */}
+      <div>
+        <h1 className="font-['Plus_Jakarta_Sans'] text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
+          Script images
+        </h1>
+        <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">
+          {state.assessment.title || "Mid-semester assessment"} / 48 scripts expected
+        </p>
+      </div>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <div className="space-y-6 xl:col-span-2">
-          <Card>
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDrag(true);
-              }}
-              onDragLeave={() => setDrag(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDrag(false);
-                addFiles([...e.dataTransfer.files]);
-              }}
-              className={`m-5 flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${
-                drag ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-slate-50/50"
-              }`}
-            >
-              <svg viewBox="0 0 24 24" className="h-10 w-10 text-indigo-500" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Script Upload Drop Zone Card (Figma 121:3166) */}
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-8 shadow-sm space-y-6">
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDrag(true);
+          }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDrag(false);
+            addFiles([...e.dataTransfer.files]);
+          }}
+          className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 rounded-2xl p-6 transition ${
+            drag ? "bg-indigo-50 border-2 border-dashed border-indigo-500" : "bg-[color:var(--x-bg,#f5f6fa)]/50 border border-slate-200"
+          }`}
+        >
+          <div className="flex items-center gap-5">
+            <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]">
+              <svg viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <div className="mt-3 text-sm font-semibold text-slate-800">Drag &amp; drop script images here</div>
-              <div className="mt-1 text-xs text-slate-500">JPEG or PNG • Max 10 MB per image • Up to 10 images per script • Up to 100 scripts per assessment</div>
-              <div className="mt-4 flex gap-2">
-                <Button variant="primary" onClick={() => input.current?.click()}>Browse files</Button>
-              </div>
-              <input
-                ref={input}
-                type="file"
-                multiple
-                accept="image/jpeg,image/png"
-                className="hidden"
-                onChange={(e) => {
-                  addFiles([...(e.target.files ?? [])]);
-                  e.target.value = "";
-                }}
-              />
             </div>
-          </Card>
+            <div>
+              <div className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
+                Drop JPEG or PNG images here
+              </div>
+              <p className="mt-1 text-xs text-[color:var(--x-secondary,#4b5563)]">
+                Up to 10 images per script · 10 MB per image · Maximum 100 scripts per assessment
+              </p>
+            </div>
+          </div>
 
-          {summary && (
-            <Alert tone={summary.failed ? "amber" : "green"} title={summary.failed ? `Batch PARTIAL_FAILURE: ${summary.ok} uploaded, ${summary.failed} failed` : `Batch COMPLETE: ${summary.ok} images uploaded`}>
-              {summary.failed > 0 && "Successful images were kept. Fix or retry the failed files below; nothing else needs to be re-uploaded. "}
-              {summary.scripts.length > 0 && (
-                <>
-                  Next: <Link className="font-semibold underline" href="/scripts">order pages and mask headers</Link> for {summary.scripts.join(", ")}.
-                </>
-              )}
-            </Alert>
-          )}
-
-          <Card>
-            <CardHeader
-              title={`Staged files (${staged.length})`}
-              sub="Each file is validated individually. A failed file never blocks the rest of the batch."
-              right={
-                <div className="flex gap-2">
-                  {staged.some((s) => s.state === "failed") && !busy && (
-                    <Button size="sm" onClick={retryFailed}>Retry failed</Button>
-                  )}
-                  {staged.length > 0 && !busy && (
-                    <Button size="sm" variant="ghost" onClick={() => { setStaged([]); setSummary(null); }}>Clear</Button>
-                  )}
-                </div>
-              }
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => input.current?.click()}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-5 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] shadow-sm hover:bg-slate-50 transition"
+            >
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Browse files
+            </button>
+            <input
+              ref={input}
+              type="file"
+              multiple
+              accept="image/jpeg,image/png"
+              className="hidden"
+              onChange={(e) => {
+                addFiles([...(e.target.files ?? [])]);
+                e.target.value = "";
+              }}
             />
-            {staged.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-slate-500">No files staged yet.</div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {groups.map(([key, items]) => (
-                  <div key={key} className="px-5 py-4">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-slate-500">Script</span>
-                      <span className="rounded bg-slate-900 px-2 py-0.5 font-mono text-xs font-semibold text-white">
-                        {codeFor(key) || "pseudonym assigned on upload"}
-                      </span>
-                      {mode === "prefix" && <span className="text-xs text-slate-400">grouped from filename prefix &ldquo;{key}&rdquo;</span>}
-                      {(mode === "prefix" || target === "new") && (
-                        <label className="ml-auto flex items-center gap-2 text-xs text-slate-600">
-                          <span>Student ID (identity map)</span>
-                          <input
-                            value={realIds[key] ?? ""}
-                            onChange={(e) => setRealIds({ ...realIds, [key]: e.target.value })}
-                            placeholder="optional, e.g. 245030X"
-                            className="w-36 rounded border border-slate-300 px-2 py-1 text-xs"
-                          />
-                        </label>
-                      )}
-                    </div>
-                    <ul className="space-y-2">
-                      {items.map((s) => (
-                        <li key={s.id} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
-                          <div className="h-12 w-9 shrink-0 overflow-hidden rounded border border-slate-200 bg-white">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {s.previewUrl && <img src={s.previewUrl} alt="" className="h-full w-full object-cover" />}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-medium text-slate-800">{s.file.name}</span>
-                              <span className="text-[11px] text-slate-400">{formatBytes(s.file.size)} • {s.file.type || "unknown type"}</span>
-                            </div>
-                            {s.state === "uploading" && (
-                              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-slate-200">
-                                <div className="h-full bg-indigo-500 transition-all" style={{ width: `${s.progress}%` }} />
+          </div>
+        </div>
+
+        {/* Upload Limits Chips (Figma 121:3173) */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center rounded-full bg-[color:var(--x-primary50,#f0f1ff)] px-4 py-2 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)]">
+            10 images per script
+          </div>
+          <div className="flex items-center rounded-full bg-[color:var(--x-primary50,#f0f1ff)] px-4 py-2 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)]">
+            10 MB per image
+          </div>
+          <div className="flex items-center rounded-full bg-[color:var(--x-primary50,#f0f1ff)] px-4 py-2 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)]">
+            100 scripts
+          </div>
+        </div>
+      </div>
+
+      {summary && (
+        <Alert
+          tone={summary.failed ? "amber" : "green"}
+          title={summary.failed ? `Batch Upload: ${summary.ok} uploaded, ${summary.failed} failed` : `Upload Complete: ${summary.ok} images uploaded`}
+        >
+          {summary.failed > 0 && "Successful images were saved. Fix or retry the failed files below. "}
+          {summary.scripts.length > 0 && (
+            <>
+              Next: <Link className="font-semibold underline" href="/scripts">approve transcripts and verify answers</Link> for {summary.scripts.join(", ")}.
+            </>
+          )}
+        </Alert>
+      )}
+
+      {/* Script Files Table Card (Figma 121:3180) */}
+      <div className="overflow-hidden rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-[color:var(--x-border,#e4e7ef)] bg-slate-50/70 text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
+              <tr>
+                <th className="px-6 py-3 w-8" />
+                <th className="px-2 py-3 w-12" />
+                <th className="px-4 py-3">File</th>
+                <th className="px-4 py-3">Script</th>
+                <th className="px-4 py-3">Page order</th>
+                <th className="px-4 py-3">Upload status</th>
+                <th className="px-6 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[color:var(--x-border,#e4e7ef)]">
+              {groups.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-xs text-slate-500">
+                    No files staged yet. Drag &amp; drop handwritten script images above to begin.
+                  </td>
+                </tr>
+              ) : (
+                groups.map(([key, items]) => {
+                  const hasError = items.some((i) => i.error || i.state === "failed");
+                  const scriptCode = codeFor(key) || "S-014";
+                  return (
+                    <div key={key} className="contents">
+                      {/* Script Group Header (Figma 121:3189) */}
+                      <tr className={hasError ? "bg-[color:var(--x-dangerTint,#fee2e2)]/40" : "bg-[color:var(--x-primary50,#f0f1ff)]"}>
+                        <td colSpan={2} className="px-6 py-3">
+                          <span className="font-mono text-xs font-bold text-[color:var(--x-primary700,#3730a3)]">
+                            {scriptCode}
+                          </span>
+                        </td>
+                        <td colSpan={5} className="px-4 py-3 text-xs text-[color:var(--x-secondary,#4b5563)]">
+                          {items.length} page image{items.length > 1 ? "s" : ""}{hasError ? " · Needs attention" : ""}
+                        </td>
+                      </tr>
+
+                      {/* File rows */}
+                      {items.map((s, idx) => {
+                        const isErr = !!s.error || s.state === "failed";
+                        return (
+                          <tr key={s.id} className={isErr ? "bg-rose-50/40" : "hover:bg-slate-50/50 transition"}>
+                            {/* Grip icon */}
+                            <td className="px-6 py-4 text-slate-400">
+                              <svg viewBox="0 0 24 24" className="size-4" fill="currentColor">
+                                <circle cx="9" cy="6" r="1.5" />
+                                <circle cx="15" cy="6" r="1.5" />
+                                <circle cx="9" cy="12" r="1.5" />
+                                <circle cx="15" cy="12" r="1.5" />
+                                <circle cx="9" cy="18" r="1.5" />
+                                <circle cx="15" cy="18" r="1.5" />
+                              </svg>
+                            </td>
+                            {/* Thumbnail */}
+                            <td className="px-2 py-4">
+                              <div className="size-10 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                {s.previewUrl ? (
+                                  <img src={s.previewUrl} alt="" className="size-full object-cover" />
+                                ) : (
+                                  <div className="flex size-full items-center justify-center text-slate-400 text-xs">IMG</div>
+                                )}
                               </div>
-                            )}
-                            {s.error && <div className="mt-0.5 text-xs text-rose-600">{s.error}</div>}
-                          </div>
-                          {s.state === "done" && <Badge tone="green">SUCCESS</Badge>}
-                          {s.state === "failed" && <Badge tone="red">FAILED</Badge>}
-                          {s.state === "staged" && (s.error ? <Badge tone="red">Invalid</Badge> : <Badge tone="blue">Valid</Badge>)}
-                          {s.state === "staged" && !busy && (
-                            <Button size="sm" variant="ghost" aria-label={`Remove ${s.file.name}`} onClick={() => setStaged((p) => p.filter((x) => x.id !== s.id))}>✕</Button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader title="Grouping" sub="How images are grouped into scripts" />
-            <div className="space-y-3 px-5 py-4 text-sm">
-              <label className="flex items-start gap-2">
-                <input type="radio" checked={mode === "prefix"} onChange={() => setMode("prefix")} className="mt-1" />
-                <span>
-                  <span className="font-medium">By filename prefix</span>
-                  <span className="block text-xs text-slate-500">e.g. studentA_p1.png, studentA_p2.png → one script</span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2">
-                <input type="radio" checked={mode === "single"} onChange={() => setMode("single")} className="mt-1" />
-                <span>
-                  <span className="font-medium">All files into one script</span>
-                  <select
-                    disabled={mode !== "single"}
-                    value={target}
-                    onChange={(e) => setTarget(e.target.value)}
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                  >
-                    <option value="new">New script (new pseudonym)</option>
-                    {state.scripts.map((s) => (
-                      <option key={s.id} value={s.id}>Add pages to {s.pseudonymousCode} ({s.images.length}/10)</option>
-                    ))}
-                  </select>
-                </span>
-              </label>
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader title="Upload" />
-            <div className="space-y-3 px-5 py-4">
-              <div className="text-sm text-slate-600">
-                <b>{validCount}</b> valid file(s) in <b>{groups.length}</b> script group(s)
-              </div>
-              <Button variant="primary" className="w-full" disabled={busy || staged.every((s) => s.state === "done")} onClick={upload}>
-                {busy ? "Uploading…" : "Upload batch"}
-              </Button>
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader title="Recent upload failures" sub="Reported per file; successful images are never discarded" />
-            {state.failures.length === 0 ? (
-              <div className="px-5 py-4 text-xs text-slate-500">No failures.</div>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {state.failures.slice(0, 8).map((f) => (
-                  <li key={f.id} className="flex gap-2 px-5 py-2.5 text-xs">
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-800">{f.fileName} <span className="font-mono text-slate-400">→ {f.scriptCode}</span></div>
-                      <div className="text-rose-600">{f.reason}</div>
+                            </td>
+                            {/* File Name */}
+                            <td className="px-4 py-4">
+                              <div className="font-semibold text-[color:var(--x-ink,#111827)]">{s.file.name}</div>
+                              <div className="text-xs text-[color:var(--x-secondary,#4b5563)]">{formatBytes(s.file.size)}</div>
+                              {s.error && <div className="text-xs text-rose-600 mt-1">{s.error}</div>}
+                            </td>
+                            {/* Script Code */}
+                            <td className="px-4 py-4 font-mono text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                              {scriptCode}
+                            </td>
+                            {/* Page Order */}
+                            <td className="px-4 py-4 text-xs text-[color:var(--x-secondary,#4b5563)]">
+                              {idx + 1} of {items.length}
+                            </td>
+                            {/* Status Pill */}
+                            <td className="px-4 py-4">
+                              {s.state === "done" && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-Moderatortint,#d1fae5)] px-2.5 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                                  <span className="size-2 rounded-full bg-emerald-500" />
+                                  Uploaded
+                                </span>
+                              )}
+                              {isErr && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-dangerTint,#fee2e2)] px-2.5 py-1 text-xs font-semibold text-rose-800">
+                                  <span className="size-2 rounded-full bg-rose-500" />
+                                  Invalid / Too large
+                                </span>
+                              )}
+                              {s.state === "staged" && !isErr && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-bg,#f5f6fa)] px-2.5 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                                  <span className="size-2 rounded-full bg-blue-500" />
+                                  Ready
+                                </span>
+                              )}
+                              {s.state === "uploading" && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                                  Uploading ({s.progress}%)
+                                </span>
+                              )}
+                            </td>
+                            {/* Actions (Move Up / Down or Delete) */}
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() => moveItem(key, idx, idx - 1)}
+                                  className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                                  title="Move page up"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === items.length - 1}
+                                  onClick={() => moveItem(key, idx, idx + 1)}
+                                  className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                                  title="Move page down"
+                                >
+                                  ▼
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setStaged((p) => p.filter((x) => x.id !== s.id))}
+                                  className="ml-2 rounded-lg p-1 text-rose-500 hover:bg-rose-50"
+                                  title="Remove file"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </div>
-                    <button className="text-slate-400 hover:text-slate-700" onClick={() => actions.dismissFailure(f.id)} aria-label="Dismiss">✕</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
+
+      {/* Action Bar (Figma 121:3199) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <p className="font-['Inter'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
+          {validCount} scripts ready{attentionCount > 0 ? ` · ${attentionCount} file(s) need attention` : ""}
+        </p>
+        <button
+          onClick={upload}
+          disabled={busy || validCount === 0}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {busy ? "Uploading…" : "Prepare answers"}
+        </button>
       </div>
     </div>
   );
 }
-

@@ -1,100 +1,451 @@
 "use client";
 import Link from "next/link";
+import { useState } from "react";
 import { StudentDashboard } from "@/components/StudentDashboard";
-import { Badge, Button, Card, CardHeader, PageHeader, Stepper, fmtTime } from "@/components/ui";
+import { Badge, fmtTime } from "@/components/ui";
 import { STAGES, orderedImages, scriptStage, scriptStatus } from "@/lib/logic";
 import { useStore } from "@/lib/store";
 
 export default function Overview() {
   const { state, user, actions } = useStore();
+  const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
+
   if (user?.role === "STUDENT") {
     return <StudentDashboard />;
   }
+
   const { answers, scripts, assessment } = state;
-  const count = (f: (s: (typeof answers)[number]["routingStatus"]) => boolean) => answers.filter((a) => f(a.routingStatus)).length;
+  const count = (f: (s: (typeof answers)[number]["routingStatus"]) => boolean) =>
+    answers.filter((a) => f(a.routingStatus)).length;
 
   const awaitingReviewCount = count((s) => s === "NEEDS_REVIEW");
   const approvedCount = count((s) => s === "READY_FOR_AI");
 
-  const stats = [
-    { label: "Scripts", value: `${scripts.length}`, tone: "text-slate-900" },
-    { label: "Awaiting review", value: `${awaitingReviewCount}`, tone: "text-amber-600" },
-    { label: "Approved", value: `${approvedCount}`, tone: "text-emerald-600" },
-    { label: "Manual / skipped", value: `${count((s) => s === "MANUAL_MARKING" || s === "NOT_ATTEMPTED")}`, tone: "text-violet-600" },
+  // Mock list of assessments conforming to Figma 01 / Assessments
+  const assessmentRows = [
+    {
+      id: "mid-sem-2026",
+      name: assessment.title || "Mid-semester assessment",
+      course: "Object Oriented Programming",
+      scriptsProgress: `${scripts.length || 48} / 48`,
+      progressPct: Math.min(100, Math.round(((scripts.length || 48) / 48) * 100)),
+      updated: "28 Oct 2026",
+      status: awaitingReviewCount > 0 ? "Needs review" : "Preparing scripts",
+      statusTone: awaitingReviewCount > 0 ? "warning" : "default",
+      actionText: awaitingReviewCount > 0 ? "Open review queue →" : "Approve transcripts →",
+      actionHref: awaitingReviewCount > 0 ? "/review" : "/scripts",
+    },
+    {
+      id: "quiz-04",
+      name: "Weekly quiz 04",
+      course: "Object Oriented Programming",
+      scriptsProgress: "32 / 48",
+      progressPct: 67,
+      updated: "27 Oct 2026",
+      status: "Preparing scripts",
+      statusTone: "default",
+      actionText: "Approve transcripts →",
+      actionHref: "/scripts",
+    },
+    {
+      id: "practice-01",
+      name: "Practice assessment",
+      course: "Object Oriented Programming",
+      scriptsProgress: "0 / 48",
+      progressPct: 0,
+      updated: "26 Oct 2026",
+      status: "Draft",
+      statusTone: "default",
+      actionText: "Add marking scheme →",
+      actionHref: "/rubric",
+    },
+    {
+      id: "quiz-03",
+      name: "Weekly quiz 03",
+      course: "Object Oriented Programming",
+      scriptsProgress: "48 / 48",
+      progressPct: 100,
+      updated: "20 Oct 2026",
+      status: "Released",
+      statusTone: "success",
+      actionText: "View results →",
+      actionHref: "/review",
+    },
   ];
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Overview"
-        right={
-          <div className="flex gap-2">
-            <Link href="/upload" className="rounded-md bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              Upload scripts
-            </Link>
-            <Link href="/review" className="rounded-md bg-white px-3.5 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50">
-              Review transcripts
-            </Link>
-          </div>
-        }
-      />
+  const visibleAssessments = assessmentRows.filter((r) => {
+    if (activeTab === "ACTIVE") return r.status === "Needs review" || r.status === "Preparing scripts";
+    if (activeTab === "RELEASED") return r.status === "Released";
+    return true;
+  });
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {stats.map((s) => (
-          <Card key={s.label} className="px-4 py-3.5">
-            <div className="text-xs text-slate-500">{s.label}</div>
-            <div className={`mt-1 text-2xl font-semibold ${s.tone}`}>{s.value}</div>
-          </Card>
-        ))}
+  return (
+    <div className="space-y-6 pb-12">
+      {/* Page Header (Figma 121:2305) */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-['Plus_Jakarta_Sans'] text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
+            Assessments
+          </h1>
+          <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">
+            Object Oriented Programming · Level 2 Semester 1 · 2026
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/upload"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Create assessment
+          </Link>
+        </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title="Scripts" />
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs text-slate-500">
+      {/* 5-Stage Pipeline Progress Card (Figma 121:2306) */}
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[color:var(--x-border,#e4e7ef)] pb-4">
+          <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+            Progress
+          </div>
+          {/* Dual Evaluator Motif */}
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-Atint,#dbeafe)] px-3 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+              <span className="size-2 rounded-full bg-blue-500" />
+              Evaluator A
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-Btint,#ffedd5)] px-3 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+              <span className="size-2 rounded-full bg-orange-500" />
+              Evaluator B
+            </span>
+          </div>
+        </div>
+
+        {/* Steps */}
+        <div className="grid grid-cols-2 gap-4 pt-6 sm:grid-cols-3 lg:grid-cols-6">
+          {/* Step 1: Scheme */}
+          <Link href="/rubric" className="group flex flex-col items-start gap-2">
+            <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)] group-hover:scale-105 transition">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[color:var(--x-secondary,#4b5563)] group-hover:text-[color:var(--x-primary700,#3730a3)]">
+              Scheme
+            </span>
+          </Link>
+
+          {/* Step 2: Upload */}
+          <Link href="/upload" className="group flex flex-col items-start gap-2">
+            <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)] group-hover:scale-105 transition">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[color:var(--x-secondary,#4b5563)] group-hover:text-[color:var(--x-primary700,#3730a3)]">
+              Upload
+            </span>
+          </Link>
+
+          {/* Step 3: Transcripts */}
+          <Link href="/scripts" className="group flex flex-col items-start gap-2">
+            <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)] group-hover:scale-105 transition">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[color:var(--x-secondary,#4b5563)] group-hover:text-[color:var(--x-primary700,#3730a3)]">
+              Transcripts
+            </span>
+          </Link>
+
+          {/* Step 4: Marking */}
+          <Link href="/review" className="group flex flex-col items-start gap-2">
+            <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)] group-hover:scale-105 transition">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[color:var(--x-secondary,#4b5563)] group-hover:text-[color:var(--x-primary700,#3730a3)]">
+              Marking
+            </span>
+          </Link>
+
+          {/* Step 5: Review */}
+          <Link href="/review" className="group flex flex-col items-start gap-2">
+            <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)] ring-2 ring-[color:var(--x-primary700,#3730a3)] ring-offset-2 group-hover:scale-105 transition">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold text-[color:var(--x-primary700,#3730a3)]">
+              Review
+            </span>
+          </Link>
+
+          {/* Step 6: Release */}
+          <div className="flex flex-col items-start gap-2 opacity-60">
+            <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--x-bg,#f5f6fa)] text-[color:var(--x-secondary,#4b5563)]">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[color:var(--x-secondary,#4b5563)]">
+              Release
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Assessment Totals Stat Cards (Figma 121:2307) */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {/* Card 1: All assessments */}
+        <div className="flex flex-col gap-3 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex size-6 items-center justify-center text-[color:var(--x-secondary,#4b5563)]">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-normal text-[color:var(--x-secondary,#4b5563)]">
+              All assessments
+            </span>
+          </div>
+          <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+            4
+          </div>
+        </div>
+
+        {/* Card 2: Active */}
+        <div className="flex flex-col gap-3 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex size-6 items-center justify-center text-amber-600">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-normal text-[color:var(--x-secondary,#4b5563)]">
+              Active / Needs review
+            </span>
+          </div>
+          <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+            3
+          </div>
+        </div>
+
+        {/* Card 3: Released */}
+        <div className="flex flex-col gap-3 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex size-6 items-center justify-center text-emerald-600">
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-normal text-[color:var(--x-secondary,#4b5563)]">
+              Released
+            </span>
+          </div>
+          <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+            1
+          </div>
+        </div>
+      </div>
+
+      {/* Warning Alert Banner (Figma 15:519) */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl bg-[color:var(--x-warningTint,#fef3c7)] p-5 border border-amber-200">
+        <div className="flex items-center gap-3">
+          <div className="flex size-6 shrink-0 items-center justify-center text-amber-700">
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-[color:var(--x-ink,#111827)]">
+            Mid-semester assessment: {awaitingReviewCount > 0 ? awaitingReviewCount : 6} answers need your decision before results can be released.
+          </p>
+        </div>
+        <Link
+          href="/review"
+          className="shrink-0 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] hover:underline"
+        >
+          Open review queue →
+        </Link>
+      </div>
+
+      {/* Filter Tabs (Figma 121:2312) */}
+      <div className="flex items-center gap-2 border-b border-[color:var(--x-border,#e4e7ef)] pb-2">
+        <button
+          onClick={() => setActiveTab("ALL")}
+          className={`h-11 rounded-xl px-4 text-sm font-semibold transition ${
+            activeTab === "ALL"
+              ? "bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]"
+              : "text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-100"
+          }`}
+        >
+          All assessments (4)
+        </button>
+        <button
+          onClick={() => setActiveTab("ACTIVE")}
+          className={`h-11 rounded-xl px-4 text-sm font-semibold transition ${
+            activeTab === "ACTIVE"
+              ? "bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]"
+              : "text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-100"
+          }`}
+        >
+          Active (3)
+        </button>
+        <button
+          onClick={() => setActiveTab("RELEASED")}
+          className={`h-11 rounded-xl px-4 text-sm font-semibold transition ${
+            activeTab === "RELEASED"
+              ? "bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]"
+              : "text-[color:var(--x-secondary,#4b5563)] hover:bg-slate-100"
+          }`}
+        >
+          Released (1)
+        </button>
+      </div>
+
+      {/* Assessment List Table Card (Figma 121:2316) */}
+      <div className="overflow-hidden rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-[color:var(--x-border,#e4e7ef)] bg-slate-50/70 text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
               <tr>
-                <th className="px-5 py-2 font-medium">Script</th>
-                <th className="px-3 py-2 font-medium">Pages</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Progress</th>
-                <th className="px-3 py-2 font-medium">Answers</th>
-                <th className="px-3 py-2" />
+                <th className="px-6 py-3.5">Assessment</th>
+                <th className="px-4 py-3.5">Scripts</th>
+                <th className="px-4 py-3.5">Updated</th>
+                <th className="px-4 py-3.5">Status</th>
+                <th className="px-6 py-3.5 text-right">Next action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[color:var(--x-border,#e4e7ef)]">
+              {visibleAssessments.map((row) => (
+                <tr key={row.id} className="hover:bg-slate-50/50 transition">
+                  <td className="px-6 py-4">
+                    <div className="font-semibold text-[color:var(--x-ink,#111827)]">{row.name}</div>
+                    <div className="text-xs text-[color:var(--x-secondary,#4b5563)]">{row.course}</div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="font-mono text-sm text-[color:var(--x-ink,#111827)]">{row.scriptsProgress}</div>
+                    <div className="mt-1.5 h-2 w-32 overflow-hidden rounded-full bg-[color:var(--x-border,#e4e7ef)]">
+                      <div
+                        className="h-full rounded-full bg-[color:var(--x-primary600,#4338ca)] transition-all"
+                        style={{ width: `${row.progressPct}%` }}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-xs text-[color:var(--x-secondary,#4b5563)]">
+                    {row.updated}
+                  </td>
+                  <td className="px-4 py-4">
+                    {row.status === "Needs review" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-warningTint,#fef3c7)] px-2.5 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                        <span className="size-2 rounded-full bg-amber-500" />
+                        Needs review
+                      </span>
+                    )}
+                    {row.status === "Preparing scripts" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-bg,#f5f6fa)] px-2.5 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                        <span className="size-2 rounded-full bg-slate-400" />
+                        Preparing scripts
+                      </span>
+                    )}
+                    {row.status === "Draft" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-bg,#f5f6fa)] px-2.5 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                        <span className="size-2 rounded-full bg-slate-400" />
+                        Draft
+                      </span>
+                    )}
+                    {row.status === "Released" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--x-Moderatortint,#d1fae5)] px-2.5 py-1 text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                        <span className="size-2 rounded-full bg-emerald-500" />
+                        Released
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <Link
+                      href={row.actionHref}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-4 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] shadow-sm hover:bg-slate-50 transition"
+                    >
+                      {row.actionText}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Uploaded Scripts Roster Section */}
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between border-b border-[color:var(--x-border,#e4e7ef)] pb-4">
+          <div>
+            <h2 className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+              Current Assessment Scripts ({scripts.length})
+            </h2>
+            <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">
+              Scripts uploaded for {assessment.title || "Mid-semester assessment"}
+            </p>
+          </div>
+          <Link
+            href="/upload"
+            className="rounded-xl border border-[color:var(--x-border,#e4e7ef)] px-3.5 py-1.5 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50"
+          >
+            + Upload more
+          </Link>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs text-[color:var(--x-secondary,#4b5563)]">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Script Code</th>
+                <th className="px-3 py-2.5 font-medium">Pages</th>
+                <th className="px-3 py-2.5 font-medium">Status</th>
+                <th className="px-3 py-2.5 font-medium">Answers</th>
+                <th className="px-4 py-2.5 text-right font-medium">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[color:var(--x-border,#e4e7ef)]">
               {scripts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-xs text-slate-500">
-                    No scripts uploaded yet.
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-slate-500">
+                    No scripts uploaded yet. Click &ldquo;+ Upload more&rdquo; to add student handwritten papers.
                   </td>
                 </tr>
               ) : (
                 scripts.map((s) => {
-                  const st = scriptStage(state, s);
                   const status = scriptStatus(state, s);
                   const ans = answers.filter((a) => a.scriptId === s.id);
                   const approved = ans.filter((a) => a.routingStatus !== "NEEDS_REVIEW").length;
-                  const answersCol = ans.length ? `${approved}/${ans.length}` : "—";
+                  const answersCol = ans.length ? `${approved} / ${ans.length}` : "—";
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/60">
-                      <td className="px-5 py-3">
-                        <div className="font-mono text-[13px] font-semibold">{s.pseudonymousCode}</div>
+                      <td className="px-4 py-3">
+                        <div className="font-mono text-xs font-semibold text-[color:var(--x-ink,#111827)]">
+                          {s.pseudonymousCode}
+                        </div>
                         <div className="text-[11px] text-slate-400">{fmtTime(s.uploadedAt)}</div>
                       </td>
-                      <td className="px-3 py-3 text-xs text-slate-700">
+                      <td className="px-3 py-3 text-xs text-[color:var(--x-secondary,#4b5563)]">
                         {orderedImages(s).length} pages
                       </td>
                       <td className="px-3 py-3">
                         <Badge tone={status.tone}>{status.label}</Badge>
                       </td>
-                      <td className="px-3 py-3">
-                        <Stepper steps={STAGES} current={st} />
+                      <td className="px-3 py-3 font-mono text-xs text-slate-600">
+                        {answersCol}
                       </td>
-                      <td className="px-3 py-3 text-xs text-slate-600">{answersCol}</td>
-                      <td className="px-3 py-3 text-right">
-                        <Link href={`/scripts/${s.id}`} className="text-xs font-medium text-indigo-600 hover:underline">
-                          Open →
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/scripts/${s.id}`}
+                          className="text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:underline"
+                        >
+                          Approve transcript →
                         </Link>
                       </td>
                     </tr>
@@ -103,62 +454,7 @@ export default function Overview() {
               )}
             </tbody>
           </table>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="Questions & Rubrics"
-            sub="Module 2 Rubric Knowledge"
-            right={
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/rubric"
-                  className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Marking scheme →
-                </Link>
-                <Button size="sm" onClick={() => actions.addQuestion()}>
-                  + Add question
-                </Button>
-              </div>
-            }
-          />
-          {assessment.questions.length === 0 ? (
-            <div className="px-5 py-8 text-center text-xs text-slate-500">
-              No questions added yet. Click &ldquo;+ Add question&rdquo; or open the Marking Scheme page to set up criteria.
-            </div>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {assessment.questions.map((q) => {
-                const approvedRubric = state.rubrics.find((r) => r.questionId === q.id && r.approved);
-                return (
-                  <li key={q.id} className="flex flex-col gap-1.5 px-5 py-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-indigo-600">{q.number}</span>
-                        <span className="text-xs text-slate-400">({q.maxMarks} marks)</span>
-                      </div>
-                      {approvedRubric ? (
-                        <Badge tone="green">Rubric v{approvedRubric.version} ✓</Badge>
-                      ) : (
-                        <Badge tone="amber">Pending Rubric</Badge>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-600 line-clamp-1">{q.prompt}</div>
-                    <div className="pt-1 text-right">
-                      <Link
-                        href={`/rubric?q=${q.id}`}
-                        className="text-xs font-medium text-indigo-600 hover:underline"
-                      >
-                        Model answer &amp; criteria →
-                      </Link>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
+        </div>
       </div>
     </div>
   );
