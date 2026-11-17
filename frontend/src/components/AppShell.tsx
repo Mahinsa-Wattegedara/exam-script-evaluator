@@ -171,21 +171,6 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                 );
               })}
         </nav>
-
-        {/* Bottom Sign Out */}
-        <div className="p-4 border-t border-white/10">
-          <button
-            type="button"
-            onClick={() => {
-              logout();
-              router.push("/");
-            }}
-            className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition"
-          >
-            <Icon d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            <span>{initials} / Sign out</span>
-          </button>
-        </div>
       </aside>
 
       {/* MAIN CONTAINER */}
@@ -223,9 +208,25 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Role Label */}
-            <span className="rounded-lg bg-indigo-50 px-3 py-1 text-xs font-semibold text-[#4338ca]">
+            <span className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-[#4338ca]">
               {isTeacher ? "Teacher workspace" : "Student workspace"}
             </span>
+
+            {/* Top Right Log out button */}
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                router.push("/");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#e4e7ef] bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 transition"
+              title="Sign out of ScriptX"
+            >
+              <svg viewBox="0 0 24 24" className="size-4 shrink-0 text-slate-500 group-hover:text-rose-600" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span>Sign out</span>
+            </button>
           </div>
         </header>
 
