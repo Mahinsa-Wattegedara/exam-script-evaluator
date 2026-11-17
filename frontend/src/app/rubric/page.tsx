@@ -18,7 +18,9 @@ function RubricContent() {
   // Sync selected question when questions change or query param changes
   useEffect(() => {
     if (qParam && assessment.questions.some((q) => q.id === qParam)) {
-      setSelectedQId(qParam);
+      if (selectedQId !== qParam) {
+        setSelectedQId(qParam);
+      }
     } else if (!selectedQId && assessment.questions.length > 0) {
       setSelectedQId(assessment.questions[0].id);
     }
@@ -96,34 +98,38 @@ function RubricContent() {
   const isSumValid = currentQ ? Math.abs(criteriaSum - qMaxMarks) < 0.001 : false;
 
   // Handle uploading teacher model answer image
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const url = event.target?.result as string;
-        const newImg: ModelAnswerImage = {
-          id: `img-model-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          fileName: file.name,
-          fileFormat: file.type.includes("png") ? "PNG" : "JPEG",
-          fileSizeBytes: file.size,
-          originalUrl: url,
-          pageNumber: modelImages.length + 1,
-        };
-
-        setModelImages((prev) => {
-          const next = [...prev, newImg];
-          if (currentQ) {
-            actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, next);
-          }
-          return next;
-        });
-      };
-      reader.readAsDataURL(file);
-    });
+    const fileList = Array.from(files);
     e.target.value = "";
+
+    const newImages: ModelAnswerImage[] = await Promise.all(
+      fileList.map((file, idx) => {
+        return new Promise<ModelAnswerImage>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const url = event.target?.result as string;
+            resolve({
+              id: `img-model-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+              fileName: file.name,
+              fileFormat: file.type.includes("png") ? "PNG" : "JPEG",
+              fileSizeBytes: file.size,
+              originalUrl: url,
+              pageNumber: modelImages.length + idx + 1,
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      })
+    );
+
+    const updatedImages = [...modelImages, ...newImages];
+    setModelImages(updatedImages);
+    if (currentQ) {
+      actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, updatedImages);
+    }
   }
 
   // Handle OCR extraction on model answer image
@@ -328,8 +334,13 @@ function RubricContent() {
                               onClick={() => {
                                 const cur = modelImages[selectedImgIdx];
                                 if (cur) {
-                                  setModelImages((prev) => prev.filter((_, i) => i !== selectedImgIdx));
+                                  const next = modelImages.filter((_, i) => i !== selectedImgIdx);
+                                  const renumbered = next.map((im, i) => ({ ...im, pageNumber: i + 1 }));
+                                  setModelImages(renumbered);
                                   setSelectedImgIdx(0);
+                                  if (currentQ) {
+                                    actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, renumbered);
+                                  }
                                 }
                               }}
                             >
