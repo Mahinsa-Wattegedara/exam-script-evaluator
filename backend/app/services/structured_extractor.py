@@ -201,7 +201,7 @@ def _build_spans_and_flags(
                 conf = max(0.0, min(1.0, round(float(conf_raw), 2)))
             except Exception:
                 conf = 0.9
-            span_id = f"{question_id}-L{line_no}-S1"
+            span_id = f"{question_id}-L{line_no}"
             spans.append(
                 ExtractedSpanSchema(
                     id=span_id,

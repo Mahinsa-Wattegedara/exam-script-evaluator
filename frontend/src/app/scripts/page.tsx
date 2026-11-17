@@ -11,9 +11,17 @@ export default function ScriptsPage() {
       <PageHeader
         title="Scripts"
         right={
-          <Link href="/upload" className="rounded-md bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            Upload scripts
-          </Link>
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/review"
+              className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition"
+            >
+              Review Queue →
+            </Link>
+            <Link href="/upload" className="rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-700 shadow-xs transition">
+              Upload scripts
+            </Link>
+          </div>
         }
       />
       <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
@@ -68,6 +76,12 @@ export default function ScriptsPage() {
                     <div className="flex items-center justify-between text-xs text-slate-500">
                       <span>{s.images.length} pages · {regions} regions</span>
                       <MaskBadge s={imgs[0]?.maskStatus ?? "PENDING"} />
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600">
+                      <span className="text-[11px] font-normal text-slate-400">Next action</span>
+                      <span className="flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                        {st === 0 ? "Order pages →" : st === 1 ? "Mask header →" : st === 2 ? "Map answers →" : "Review transcript →"}
+                      </span>
                     </div>
                   </div>
                 </Card>

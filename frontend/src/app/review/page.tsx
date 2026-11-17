@@ -511,12 +511,21 @@ export function ReviewQueueInner() {
               {/* Scrollable Extracted Transcript Container */}
               <div className="mt-4 flex-1 min-h-0 overflow-y-auto rounded-xl bg-slate-50 p-4 font-mono text-xs sm:text-sm leading-relaxed text-[color:var(--x-ink,#111827)] border border-slate-200 divide-y divide-slate-200/60 shadow-inner">
                 {curVersion && curVersion.spans.length > 0 ? (
-                  curVersion.spans.map((sp) => (
-                    <div key={sp.id} className="flex items-start gap-3 py-1.5 hover:bg-slate-100/80 px-1.5 rounded transition-colors">
-                      <span className="shrink-0 text-slate-400 select-none text-[11px] font-semibold pt-0.5">{sp.id}</span>
-                      <span className="flex-1 whitespace-pre-wrap">{sp.text}</span>
-                    </div>
-                  ))
+                  curVersion.spans.map((sp, idx) => {
+                    const lineMatch = sp.id?.match(/L(\d+)/i);
+                    const lineNum = lineMatch ? lineMatch[1] : (sp.line ?? (idx + 1));
+                    return (
+                      <div key={sp.id} className="flex items-start gap-2.5 py-1.5 hover:bg-slate-100/80 px-2 rounded transition-colors group">
+                        <span
+                          title={`Span ID: ${sp.id} (Line ${lineNum})`}
+                          className="w-8 shrink-0 text-right pr-2 text-slate-400 select-none text-[11px] font-mono font-medium pt-0.5 border-r border-slate-200/80 group-hover:text-slate-600 transition-colors"
+                        >
+                          L{lineNum}
+                        </span>
+                        <span className="flex-1 whitespace-pre-wrap leading-relaxed text-[13px]">{sp.text}</span>
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center p-8 text-center text-slate-400">
                     <p className="font-semibold text-slate-600 text-sm">No extracted transcript available</p>

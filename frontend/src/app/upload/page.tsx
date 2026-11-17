@@ -168,6 +168,11 @@ export default function UploadPage() {
   const validCount = staged.filter((s) => !s.error && s.state !== "done").length;
   const attentionCount = staged.filter((s) => s.error || s.state === "failed").length;
 
+  const targetScript = useMemo(() => {
+    if (!summary || !summary.scripts.length) return null;
+    return state.scripts.find((s) => summary.scripts.includes(s.pseudonymousCode)) || null;
+  }, [summary, state.scripts]);
+
   return (
     <div className="space-y-6 pb-12">
       {/* Page Header (Figma 19:226) */}
@@ -252,17 +257,46 @@ export default function UploadPage() {
       </div>
 
       {summary && (
-        <Alert
-          tone={summary.failed ? "amber" : "green"}
-          title={summary.failed ? `Batch Upload: ${summary.ok} uploaded, ${summary.failed} failed` : `Upload Complete: ${summary.ok} images uploaded`}
-        >
-          {summary.failed > 0 && "Successful images were saved. Fix or retry the failed files below. "}
-          {summary.scripts.length > 0 && (
-            <>
-              Next: <Link className="font-semibold underline" href="/scripts">approve transcripts and verify answers</Link> for {summary.scripts.join(", ")}.
-            </>
-          )}
-        </Alert>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/90 p-5 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-emerald-950">
+                  {summary.failed > 0
+                    ? `Batch Upload: ${summary.ok} uploaded, ${summary.failed} failed`
+                    : `Upload Complete: ${summary.ok} page image${summary.ok > 1 ? "s" : ""} saved`}
+                </h3>
+                <p className="text-xs text-emerald-800 mt-0.5">
+                  {summary.scripts.length > 0
+                    ? `Script ${summary.scripts.join(", ")} is ready. Jump directly into page setup & masking, or open the review queue.`
+                    : "Successful images were saved."}
+                </p>
+              </div>
+            </div>
+
+            {summary.scripts.length > 0 && targetScript && (
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                <Link
+                  href={`/scripts/${targetScript.id}`}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+                >
+                  <span>Start masking &amp; setup ({targetScript.pseudonymousCode}) →</span>
+                </Link>
+                <Link
+                  href={`/review?script=${targetScript.id}`}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-semibold text-emerald-900 shadow-xs hover:bg-emerald-50 transition"
+                >
+                  <span>Direct to Review Queue →</span>
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Script Files Table Card (Figma 121:3180) */}
@@ -416,19 +450,37 @@ export default function UploadPage() {
 
       {/* Action Bar (Figma 121:3199) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
-        <p className="font-['Inter'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
-          {validCount} scripts ready{attentionCount > 0 ? ` · ${attentionCount} file(s) need attention` : ""}
-        </p>
-        <button
-          onClick={upload}
-          disabled={busy || validCount === 0}
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          {busy ? "Uploading…" : "Prepare answers"}
-        </button>
+        <div>
+          <p className="font-['Inter'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
+            {validCount} script{validCount === 1 ? "" : "s"} ready{attentionCount > 0 ? ` · ${attentionCount} file(s) need attention` : ""}
+          </p>
+          {summary && summary.scripts.length > 0 && targetScript && (
+            <p className="text-xs text-emerald-700 mt-0.5 font-medium">
+              ✓ Successfully saved {summary.scripts.join(", ")}. Click below to jump straight to setup or review.
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2.5">
+          {summary && summary.scripts.length > 0 && targetScript ? (
+            <Link
+              href={`/scripts/${targetScript.id}`}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+            >
+              <span>Continue to mask &amp; map {targetScript.pseudonymousCode} →</span>
+            </Link>
+          ) : (
+            <button
+              onClick={upload}
+              disabled={busy || validCount === 0}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {busy ? "Uploading…" : "Prepare answers"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
