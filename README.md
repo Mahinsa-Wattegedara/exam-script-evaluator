@@ -27,7 +27,60 @@ exam-script-evaluator/
 
 ---
 
-## Core Capabilities (Module 1 — Script Intake & Answer Evidence)
+## 👥 Team Workflow & Module Branches
+
+The shared baseline / integration branch for development is **`Dev`**. 
+Pre-configured branches have been created for each module so you can start immediately without branch configuration:
+
+| Module | Feature Branch | Description |
+| :--- | :--- | :--- |
+| **Module 1** | `feature/Module1` | Script intake, student identity header masking, OCR/OMR extraction, transcript verification |
+| **Module 2** | `feature/Module2` | Assessment setup, model answer upload, multi-criterion rubrics & versioning |
+| **Module 3** | `feature/Module3` | Dual evaluation LLM pipeline, evidence grounding & discrepancy detection |
+| **Module 4** | `feature/Module4` | Grounded feedback generation, student portal release & dispute resolution |
+
+### 🚀 Getting Started for Teammates
+
+1. **Fetch all remote branches from GitHub**:
+   ```bash
+   git fetch origin
+   ```
+
+2. **Switch to your assigned module branch**:
+   ```bash
+   # If working on Module 1:
+   git checkout feature/Module1
+
+   # If working on Module 2:
+   git checkout feature/Module2
+
+   # If working on Module 3:
+   git checkout feature/Module3
+
+   # If working on Module 4:
+   git checkout feature/Module4
+   ```
+
+3. **Daily workflow (Commit & Push)**:
+   ```bash
+   # Make your changes, then commit:
+   git add .
+   git commit -m "feat(module): describe what you built"
+
+   # Push your branch to GitHub:
+   git push origin <your-branch-name>
+   ```
+
+4. **Integration via Pull Requests (PR)**:
+   - When a feature is tested and working, open a Pull Request on GitHub from `feature/ModuleX` into **`Dev`**.
+   - Always run `npm run build` in `frontend/` before creating a PR to ensure there are no build breaks.
+   - Periodically pull latest updates from `Dev` into your branch to stay in sync:
+     ```bash
+     git fetch origin
+     git merge origin/Dev
+     ```
+
+---
 
 * **Teacher-Only Intake**: Only teachers upload scripts, mask student headers, map answer regions, and approve transcripts. Students can access only released results and dispute mechanisms.
 * **Identity Header Masking**: Interactive bounding box masking (`react-image-crop`) to guarantee student anonymity before AI processing (SRS NFR-02).
