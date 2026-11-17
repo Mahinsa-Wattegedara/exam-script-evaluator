@@ -1,7 +1,19 @@
 @import "tailwindcss";
 
+:root {
+  --x-sidebar: #14123b;
+  --x-primary700: #3730a3;
+  --x-primary600: #4338ca;
+  --x-primary50: #f0f1ff;
+  --x-bg: #f5f6fa;
+  --x-border: #e4e7ef;
+  --x-ink: #111827;
+  --x-secondary: #4b5563;
+  --x-muted: #6b7280;
+}
+
 @theme {
-  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
   --font-mono: "Cascadia Code", Consolas, ui-monospace, monospace;
 }
 
