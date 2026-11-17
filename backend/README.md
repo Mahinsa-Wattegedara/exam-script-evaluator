@@ -20,5 +20,8 @@ uvicorn app.main:app --reload --port 8000
 
 ## Module 1 Endpoints
 - `GET /health` — Service and version health check
-- `POST /api/v1/module1/ocr/mcq` — Header-masked MCQ answer sheet vision extraction with optical-mark fallback (`NFR-06`)
+- `POST /api/v1/module1/ocr/structured` — Header-masked handwritten answer script OCR extraction and line-by-line transcription
+- `POST /api/v1/auth/login` — Supabase teacher authentication
+- `POST /api/v1/auth/register` — Teacher account registration
+- `POST /api/v1/auth/session` — Session verification
 
