@@ -1,0 +1,36 @@
+# Dependencies & virtual environments
+node_modules/
+.next/
+out/
+.venv/
+venv/
+ENV/
+env/
+
+# Build artifacts & caches
+*.tsbuildinfo
+next-env.d.ts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment files & secrets (NFR-02: Never commit secrets)
+.env
+.env*.local
+*.dat
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local loose test images at repository root
+/*.jpg
+/*.png
+/*.webp
