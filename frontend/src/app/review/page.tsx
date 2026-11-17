@@ -89,6 +89,15 @@ export function ReviewQueueInner() {
     return questionOf(currentAnswer.questionId) || null;
   }, [currentAnswer, state.assessment.questions]);
 
+  const scriptAnswers = useMemo(() => {
+    if (!currentScript) return [];
+    return state.answers.filter((a) => a.scriptId === currentScript.id);
+  }, [currentScript, state.answers]);
+
+  const currentAnsIdx = useMemo(() => {
+    return scriptAnswers.findIndex((a) => a.id === selectedAnswerId);
+  }, [scriptAnswers, selectedAnswerId]);
+
   const answerRegions = useMemo(() => {
     if (!currentAnswer) return [];
     return regionsForAnswer(state, currentAnswer);
@@ -352,6 +361,67 @@ export function ReviewQueueInner() {
             </Alert>
           )}
 
+          {/* Question Switcher Bar for Multi-Question Scripts */}
+          {scriptAnswers.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-3 shadow-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-[color:var(--x-secondary,#4b5563)] pl-2 pr-1">
+                  Questions ({scriptAnswers.length}):
+                </span>
+                {scriptAnswers.map((ans, idx) => {
+                  const q = questionOf(ans.questionId);
+                  const isSelected = ans.id === selectedAnswerId;
+                  const ver = activeVersion(ans);
+                  const isApproved = ver?.approvalStatus === "APPROVED";
+                  const qLabel = q?.number || `Q${idx + 1}`;
+                  return (
+                    <button
+                      key={ans.id}
+                      type="button"
+                      onClick={() => setSelectedAnswerId(ans.id)}
+                      className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                        isSelected
+                          ? "bg-[color:var(--x-primary600,#4338ca)] text-white shadow-xs"
+                          : isApproved
+                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      <span className={`size-2 rounded-full ${isSelected ? "bg-white" : isApproved ? "bg-emerald-500" : "bg-amber-500"}`} />
+                      <span>{qLabel}</span>
+                      {isApproved && <span className="text-[10px]">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {scriptAnswers.length > 1 && (
+                <div className="flex items-center gap-1.5 pr-1">
+                  <button
+                    type="button"
+                    disabled={currentAnsIdx <= 0}
+                    onClick={() => {
+                      if (currentAnsIdx > 0) setSelectedAnswerId(scriptAnswers[currentAnsIdx - 1].id);
+                    }}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-30 cursor-pointer"
+                  >
+                    ← Prev Question
+                  </button>
+                  <button
+                    type="button"
+                    disabled={currentAnsIdx >= scriptAnswers.length - 1}
+                    onClick={() => {
+                      if (currentAnsIdx < scriptAnswers.length - 1) setSelectedAnswerId(scriptAnswers[currentAnsIdx + 1].id);
+                    }}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-30 cursor-pointer"
+                  >
+                    Next Question →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* SIDE-BY-SIDE: Original Image (Left) & Extracted Transcript (Right) */}
           <div className="grid gap-6 lg:grid-cols-2 items-stretch">
             {/* Left Column: Original Handwritten Script Image */}
@@ -564,7 +634,14 @@ export function ReviewQueueInner() {
                       type="button"
                       onClick={() => {
                         actions.routeManual(currentAnswer.id, "Requires human manual grading");
-                        handleBackToQueue();
+                        const nextAns = scriptAnswers.find(
+                          (a) => a.id !== currentAnswer.id && activeVersion(a)?.approvalStatus !== "APPROVED",
+                        );
+                        if (nextAns) {
+                          setSelectedAnswerId(nextAns.id);
+                        } else {
+                          handleBackToQueue();
+                        }
                       }}
                       className="h-10 rounded-xl border border-amber-300 bg-amber-50 px-5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition cursor-pointer"
                     >
@@ -574,11 +651,18 @@ export function ReviewQueueInner() {
                       type="button"
                       onClick={() => {
                         actions.approve(currentAnswer.id);
-                        setDecisionSuccess(`Approved transcript v${curVersion?.version || 1} for ${currentScript?.pseudonymousCode || "script"}! Ready for AI evaluation.`);
+                        setDecisionSuccess(`Approved transcript for ${currentQuestion?.number || "Question"}!`);
                         setTimeout(() => {
-                          handleBackToQueue();
                           setDecisionSuccess(null);
-                        }, 1200);
+                          const nextAns = scriptAnswers.find(
+                            (a) => a.id !== currentAnswer.id && activeVersion(a)?.approvalStatus !== "APPROVED",
+                          );
+                          if (nextAns) {
+                            setSelectedAnswerId(nextAns.id);
+                          } else {
+                            handleBackToQueue();
+                          }
+                        }, 900);
                       }}
                       className="h-10 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-xs font-semibold text-white hover:bg-indigo-700 transition cursor-pointer shadow-xs"
                     >

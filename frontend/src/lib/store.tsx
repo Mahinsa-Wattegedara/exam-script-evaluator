@@ -283,6 +283,16 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         audit(d, "MAP", `${code(d, scriptId)}: region mapped to ${qnum(d, questionId)}${seq > 1 ? ` (continuation part ${seq})` : ""}`);
       }),
 
+    updateRegionBbox: (regionId: string, bbox: Rect) =>
+      mutate((d) => {
+        const r = d.regions.find((x) => x.id === regionId);
+        if (!r) return;
+        r.bbox = bbox;
+        const s = d.scripts.find((x) => x.id === r.scriptId);
+        if (s) s.mappingConfirmed = false;
+        audit(d, "MAP", `${code(d, r.scriptId)}: updated crop boundaries for ${qnum(d, r.questionId)}`);
+      }),
+
     reassignRegion: (regionId: string, questionId: string) =>
       mutate((d) => {
         const r = d.regions.find((x) => x.id === regionId)!;

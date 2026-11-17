@@ -63,6 +63,7 @@ export default function ScriptWorkspacePage() {
   const allMasked = imgs.every((i) => i.maskStatus !== "PENDING");
   const scriptRegions = state.regions.filter((r) => r.scriptId === script.id);
   const pageRegions = scriptRegions.filter((r) => r.imageId === currentImg?.id);
+  const activeRegion = scriptRegions.find((r) => r.id === activeRegionId) || null;
 
   function movePage(index: number, dir: -1 | 1) {
     const next = [...imgs];
@@ -573,7 +574,11 @@ export default function ScriptWorkspacePage() {
                           color: QUESTION_COLORS[idx % QUESTION_COLORS.length],
                           active: r.id === activeRegionId,
                           label: `${qNum(r.questionId)}${totalParts > 1 ? ` (${r.sequenceOrder}/${totalParts})` : ""}`,
-                          onClick: () => setActiveRegionId(r.id),
+                          onClick: () => {
+                            setActiveRegionId(r.id);
+                            setSelectedQuestionId(r.questionId);
+                            setRegionCrop({ unit: "%", x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height });
+                          },
                         };
                       })}
                     />
@@ -581,7 +586,7 @@ export default function ScriptWorkspacePage() {
                 </div>
               </div>
               <p className="text-center text-xs text-slate-500">
-                Tip: Draw a box around each handwritten answer region, select the corresponding question in the sidebar, and click Assign.
+                Tip: Click an existing box or drag new crop handles to adjust boundaries. Select a question and save.
               </p>
             </div>
           </Card>
@@ -589,7 +594,7 @@ export default function ScriptWorkspacePage() {
           <div className="w-full lg:w-80 xl:w-88 shrink-0 lg:sticky lg:top-6 space-y-4">
             <Card>
               <CardHeader
-                title="Assign region"
+                title={activeRegion ? `Edit ${qNum(activeRegion.questionId)} crop` : "Assign region"}
                 right={
                   <Button size="sm" onClick={() => actions.addQuestion()}>
                     + Add Q
@@ -620,13 +625,56 @@ export default function ScriptWorkspacePage() {
                   })}
                 </div>
 
-                <Button
-                  variant="primary"
-                  className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
-                  onClick={() => actions.addRegion(script.id, currentImg.id, selectedQuestionId, toRect(regionCrop))}
-                >
-                  + Assign to {qNum(selectedQuestionId)}
-                </Button>
+                {activeRegion ? (
+                  <div className="space-y-2 pt-1">
+                    <div className="rounded-lg bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-900 flex items-center justify-between">
+                      <span>Adjusting <strong>{qNum(activeRegion.questionId)}</strong></span>
+                      <span className="text-[10px] text-indigo-600">Drag handles to resize</span>
+                    </div>
+                    <Button
+                      variant="primary"
+                      className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
+                      onClick={() => {
+                        actions.updateRegionBbox(activeRegion.id, toRect(regionCrop));
+                        setActiveRegionId(null);
+                      }}
+                    >
+                      ✓ Save updated crop for {qNum(activeRegion.questionId)}
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 justify-center text-xs text-slate-600 hover:bg-slate-100"
+                        onClick={() => {
+                          setActiveRegionId(null);
+                          setRegionCrop(DEFAULT_REGION_CROP);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="justify-center text-xs text-rose-600 hover:bg-rose-50"
+                        onClick={() => {
+                          actions.deleteRegion(activeRegion.id);
+                          setActiveRegionId(null);
+                        }}
+                      >
+                        Delete region
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="primary"
+                    className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"
+                    onClick={() => actions.addRegion(script.id, currentImg.id, selectedQuestionId, toRect(regionCrop))}
+                  >
+                    + Assign to {qNum(selectedQuestionId)}
+                  </Button>
+                )}
               </div>
             </Card>
 
@@ -650,10 +698,23 @@ export default function ScriptWorkspacePage() {
                           return (
                             <li key={r.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
                               <div className="flex items-center justify-between">
-                                <span>
+                                <span className="font-medium text-slate-700">
                                   Part {r.sequenceOrder} · Page {im?.pageNumber ?? "?"}
                                 </span>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (im && im.id !== currentImg.id) setSelectedImageId(im.id);
+                                      setActiveRegionId(r.id);
+                                      setSelectedQuestionId(r.questionId);
+                                      setRegionCrop({ unit: "%", x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height });
+                                    }}
+                                    className="rounded px-2 py-0.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer"
+                                    title="Click to adjust crop handles on image"
+                                  >
+                                    ✎ Edit crop
+                                  </button>
                                   <select
                                     aria-label="Reassign question"
                                     value={r.questionId}
@@ -668,15 +729,27 @@ export default function ScriptWorkspacePage() {
                                   </select>
                                   <button
                                     type="button"
-                                    onClick={() => actions.deleteRegion(r.id)}
-                                    className="rounded px-1 text-rose-600 hover:bg-rose-50"
+                                    onClick={() => {
+                                      actions.deleteRegion(r.id);
+                                      if (activeRegionId === r.id) setActiveRegionId(null);
+                                    }}
+                                    className="rounded px-1 text-rose-600 hover:bg-rose-50 cursor-pointer"
                                   >
                                     ✕
                                   </button>
                                 </div>
                               </div>
                               {im && (
-                                <div className="mt-1.5 overflow-hidden rounded border border-slate-200 bg-white">
+                                <div
+                                  onClick={() => {
+                                    if (im && im.id !== currentImg.id) setSelectedImageId(im.id);
+                                    setActiveRegionId(r.id);
+                                    setSelectedQuestionId(r.questionId);
+                                    setRegionCrop({ unit: "%", x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height });
+                                  }}
+                                  className="mt-1.5 overflow-hidden rounded border border-slate-200 bg-white cursor-pointer hover:border-indigo-400 transition"
+                                  title="Click to edit this crop on the script"
+                                >
                                   <RegionCrop image={im} rect={r.bbox} />
                                 </div>
                               )}
