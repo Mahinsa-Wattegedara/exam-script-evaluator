@@ -122,8 +122,14 @@ function RubricContent() {
 
     const updatedImages = [...modelImages, ...newImages];
     setModelImages(updatedImages);
-    if (currentQ) {
-      actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, updatedImages);
+    let targetQId = currentQ?.id;
+    if (!targetQId && assessment.questions.length === 0) {
+      actions.addQuestion();
+      targetQId = "q1";
+      setSelectedQId("q1");
+    }
+    if (targetQId) {
+      actions.saveRubricDraft(targetQId, criteria, modelAnswerText, updatedImages);
     }
   }
 
@@ -203,8 +209,14 @@ function RubricContent() {
             <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Import text PDF
-            <input type="file" accept="application/pdf,text/plain" className="hidden" />
+            Upload model answer (JPEG / PNG)
+            <input
+              type="file"
+              accept="image/jpeg,image/png"
+              multiple
+              className="hidden"
+              onChange={(e) => handleImageUpload(e)}
+            />
           </label>
         </div>
       </div>
@@ -565,7 +577,25 @@ function RubricContent() {
               </button>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="flex-1 w-full flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center min-h-[380px] shadow-sm">
+            <div className="size-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 mb-4">
+              <svg viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <h3 className="font-['Plus_Jakarta_Sans'] text-lg font-bold text-slate-800">No questions added yet</h3>
+            <p className="mt-1 text-xs text-slate-500 max-w-sm">
+              Add exam questions to define rubric criteria, set mark allocations, and attach JPEG or PNG model answer sheets.
+            </p>
+            <button
+              onClick={() => actions.addQuestion()}
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 transition shadow-xs cursor-pointer"
+            >
+              + Add first question
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
