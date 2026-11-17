@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { LandingPage } from "@/components/LandingPage";
 import { LoginView } from "@/components/LoginView";
 import { Alert, Button } from "@/components/ui";
@@ -62,10 +62,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   }
 
   // If already authenticated and navigating to /login, redirect straight to workspace home
-  if (path === "/login") {
-    if (typeof window !== "undefined") {
+  useEffect(() => {
+    if (user && path === "/login") {
       router.replace("/");
     }
+  }, [user, path, router]);
+
+  if (user && path === "/login") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f5f6fa]">
         <div className="text-sm font-semibold text-slate-500">Redirecting to workspace...</div>
