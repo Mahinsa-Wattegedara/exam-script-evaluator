@@ -81,17 +81,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         {/* Top Brand & User Card Section */}
         <div className="flex flex-col items-center gap-3 p-5 pb-3">
           {/* Brand Logo */}
-          <div className="flex h-12 w-full items-center justify-center">
-            <Link href="/" className="flex items-center gap-2">
+          <div className="flex h-12 w-full items-center justify-center px-2">
+            <Link href="/" className="flex items-center justify-center">
               <img
                 src="/scriptx-logo.png"
                 alt="ScriptX"
-                className="h-10 object-contain brightness-0 invert"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = "none";
-                }}
+                className="h-9 w-auto max-w-[160px] object-contain"
               />
-              <span className="font-bold tracking-tight text-lg text-white">ScriptX</span>
             </Link>
           </div>
 
