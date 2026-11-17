@@ -42,14 +42,22 @@ exam-script-evaluator/
 
 ## Quick Start Guide
 
-### Prerequisites
-* **Node.js**: v18+ (v20+ recommended)
-* **Python**: v3.11+ (v3.12 recommended)
-* **Git**
+### 🚀 One-Click Start (Windows)
+
+From the root of `SYSTEM`, run:
+```powershell
+.\run.ps1
+```
+*Or simply double-click `run.bat` in Windows Explorer.*
+
+This script automatically:
+1. Detects your Python `.venv` and launches the **FastAPI Backend** on port 8000 in a dedicated console.
+2. Launches the **Next.js Frontend** on port 3000 in a dedicated console.
+3. Automatically opens `http://localhost:3000` in your default browser.
 
 ---
 
-### 1. Backend Setup (FastAPI)
+### Manual Setup Instructions
 
 1. Navigate to the backend directory:
    ```bash
