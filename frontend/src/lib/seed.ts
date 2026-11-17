@@ -11,6 +11,8 @@ export function buildSeed(): State {
       retentionDays: 90,
       questions: [],
     },
+    rubrics: [],
+    mcqMasterKey: undefined,
     scripts: [],
     failures: [],
     regions: [],

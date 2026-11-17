@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed } from "./seed";
-import type { AnswerRecord, FlagType, McqExtraction, PaperType, Rect, ScriptImage, SessionUser, State, UploadFailure, UserRole } from "./types";
+import type { AnswerRecord, FlagType, McqExtraction, McqMasterKey, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, UploadFailure, UserRole } from "./types";
 
 const KEY = "m1-enterprise-state-v3";
 const ACTOR = "Dr. S. Silva";
@@ -51,6 +51,131 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           prompt: `Question ${nextIdx}`,
           maxMarks: 4,
         });
+      }),
+
+    updateQuestion: (questionId: string, prompt: string, maxMarks: number) =>
+      mutate((d) => {
+        const q = d.assessment.questions.find((x) => x.id === questionId);
+        if (q) {
+          q.prompt = prompt;
+          q.maxMarks = maxMarks;
+        }
+      }),
+
+    deleteQuestion: (questionId: string) =>
+      mutate((d) => {
+        d.assessment.questions = d.assessment.questions.filter((x) => x.id !== questionId);
+        d.rubrics = d.rubrics.filter((r) => r.questionId !== questionId);
+      }),
+
+    addModelAnswerImage: (questionId: string, image: ModelAnswerImage) =>
+      mutate((d) => {
+        if (!d.rubrics) d.rubrics = [];
+        let r = d.rubrics.find((x) => x.questionId === questionId && !x.approved);
+        if (!r) {
+          r = {
+            version: 1,
+            questionId,
+            criteria: [],
+            modelAnswerImages: [],
+            approved: false,
+          };
+          d.rubrics.push(r);
+        }
+        if (!r.modelAnswerImages) r.modelAnswerImages = [];
+        r.modelAnswerImages.push(image);
+        audit(d, "UPLOAD_MODEL_ANSWER_IMAGE", `Uploaded model answer image for ${qnum(d, questionId)}`);
+      }),
+
+    removeModelAnswerImage: (questionId: string, imageId: string) =>
+      mutate((d) => {
+        if (!d.rubrics) return;
+        const r = d.rubrics.find((x) => x.questionId === questionId && !x.approved);
+        if (r && r.modelAnswerImages) {
+          r.modelAnswerImages = r.modelAnswerImages.filter((im) => im.id !== imageId);
+        }
+      }),
+
+    saveRubricDraft: (
+      questionId: string,
+      criteria: RubricCriterion[],
+      modelAnswerText?: string,
+      modelAnswerImages?: ModelAnswerImage[],
+    ) =>
+      mutate((d) => {
+        if (!d.rubrics) d.rubrics = [];
+        let r = d.rubrics.find((x) => x.questionId === questionId && !x.approved);
+        if (!r) {
+          r = {
+            version: 1,
+            questionId,
+            criteria: [],
+            approved: false,
+          };
+          d.rubrics.push(r);
+        }
+        r.criteria = criteria;
+        if (modelAnswerText !== undefined) r.modelAnswerText = modelAnswerText;
+        if (modelAnswerImages !== undefined) r.modelAnswerImages = modelAnswerImages;
+      }),
+
+    approveRubric: (
+      questionId: string,
+      criteria: RubricCriterion[],
+      modelAnswerText?: string,
+      modelAnswerImages?: ModelAnswerImage[],
+    ) => {
+      let result: { ok: boolean; error?: string } = { ok: false, error: "" };
+      mutate((d) => {
+        if (!d.rubrics) d.rubrics = [];
+        const q = d.assessment.questions.find((x) => x.id === questionId);
+        if (!q) {
+          result = { ok: false, error: "Question not found." };
+          return;
+        }
+        // Validate REQ-12: The system shall reject approval when the criterion maxima do not sum to the question maximum
+        const sum = Number(criteria.reduce((acc, c) => acc + (Number(c.maxMarks) || 0), 0).toFixed(2));
+        const qMax = Number(Number(q.maxMarks).toFixed(2));
+        if (Math.abs(sum - qMax) > 0.001) {
+          result = {
+            ok: false,
+            error: `Criteria sum (${sum} marks) must exactly equal question maximum (${qMax} marks) before approval (REQ-12).`,
+          };
+          return;
+        }
+
+        const approvedVersions = d.rubrics.filter((x) => x.questionId === questionId && x.approved);
+        const nextVer = approvedVersions.length + 1;
+
+        const approvedRubric: RubricVersion = {
+          version: nextVer,
+          questionId,
+          criteria,
+          modelAnswerText,
+          modelAnswerImages,
+          approved: true,
+          approvedAt: nowIso(),
+          approvedBy: ACTOR,
+        };
+
+        // Remove unapproved draft if any
+        d.rubrics = d.rubrics.filter((x) => !(x.questionId === questionId && !x.approved));
+        d.rubrics.push(approvedRubric);
+
+        audit(
+          d,
+          "APPROVE_RUBRIC",
+          `Approved Rubric v${nextVer} for ${q.number} (${criteria.length} criteria, ${q.maxMarks} marks total)`,
+        );
+        result = { ok: true };
+      });
+      return result;
+    },
+
+    setMcqMasterKey: (key: McqMasterKey) =>
+      mutate((d) => {
+        d.mcqMasterKey = key;
+        audit(d, "APPROVE_MCQ_KEY", `Approved MCQ Master Answer Key (${key.items.length} questions)`);
       }),
 
     addUploads: (
@@ -607,6 +732,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem("m1-enterprise-state-v2");
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
+        if (!s.rubrics) s.rubrics = [];
         if (s.assessment.course === "CS2042 Operating Systems") {
           s.assessment.course = "";
         }

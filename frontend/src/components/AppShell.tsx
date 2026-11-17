@@ -9,6 +9,7 @@ const TEACHER_NAV = [
   { href: "/", label: "Overview", icon: "M3 12l9-8 9 8M5 10v10h14V10" },
   { href: "/upload", label: "Upload", icon: "M12 16V4m0 0l-4 4m4-4l4 4M4 20h16" },
   { href: "/scripts", label: "Scripts", icon: "M7 3h7l5 5v13H7zM14 3v5h5" },
+  { href: "/rubric", label: "Marking scheme", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" },
   { href: "/review", label: "Review", icon: "M4 6h16M4 12h10M4 18h7M17 14l2 2 4-4" },
   { href: "/contract", label: "Export contract", icon: "M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12" },
 ];

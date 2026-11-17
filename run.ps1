@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     One-click runner for Exam Script Evaluator (Backend + Frontend).
 .DESCRIPTION

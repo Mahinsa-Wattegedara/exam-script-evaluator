@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useState } from "react";
 import { ApprovalBadge, Badge, Card, CardHeader, PageHeader, RoutingBadge } from "@/components/ui";
 import { activeVersion, buildAnswerReady } from "@/lib/logic";
@@ -45,21 +46,65 @@ export default function ContractPage() {
           </div>
         </Card>
 
-        <Card className="lg:col-span-7">
-          <CardHeader
-            title="AnswerReady JSON"
-            right={readyPayload ? <Badge tone="green">Ready</Badge> : <Badge tone="amber">Pending approval</Badge>}
-          />
-          <div className="p-5">
-            {readyPayload ? (
-              <pre className="max-h-[500px] overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs text-emerald-300">
-                {JSON.stringify(readyPayload, null, 2)}
-              </pre>
-            ) : (
-              <div className="text-xs text-slate-500">Approve the transcript in Review to generate the AnswerReady record.</div>
-            )}
-          </div>
-        </Card>
+        <div className="space-y-6 lg:col-span-7">
+          <Card>
+            <CardHeader
+              title="AnswerReady JSON (Module 1 → Module 2)"
+              right={readyPayload ? <Badge tone="green">Ready</Badge> : <Badge tone="amber">Pending approval</Badge>}
+            />
+            <div className="p-5">
+              {readyPayload ? (
+                <pre className="max-h-[360px] overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs text-emerald-300">
+                  {JSON.stringify(readyPayload, null, 2)}
+                </pre>
+              ) : (
+                <div className="text-xs text-slate-500">Approve the transcript in Review to generate the AnswerReady record.</div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="RubricSnapshot JSON (Module 2 → Evaluators)"
+              sub="Immutable criterion IDs, descriptions, and score bounds (SRS Section 4.3)"
+              right={
+                selected && state.rubrics.some((r) => r.questionId === selected.questionId && r.approved) ? (
+                  <Badge tone="green">Approved</Badge>
+                ) : (
+                  <Badge tone="amber">Pending Rubric Approval</Badge>
+                )
+              }
+            />
+            <div className="p-5">
+              {(() => {
+                const appR = selected ? state.rubrics.find((r) => r.questionId === selected.questionId && r.approved) : null;
+                if (!appR) {
+                  return (
+                    <div className="text-xs text-slate-500">
+                      No approved rubric version for this question yet. Go to <Link href="/rubric" className="text-indigo-600 underline font-medium">Marking scheme</Link> to define and approve criteria.
+                    </div>
+                  );
+                }
+                const snap = {
+                  contract: "RubricSnapshot",
+                  schema_version: "1.0",
+                  assessment_id: state.assessment.id,
+                  question_id: appR.questionId,
+                  rubric_version: appR.version,
+                  approved_at: appR.approvedAt,
+                  approved_by: appR.approvedBy,
+                  criteria: appR.criteria,
+                  model_answer_supplement: appR.modelAnswerText || undefined,
+                };
+                return (
+                  <pre className="max-h-[360px] overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs text-cyan-300">
+                    {JSON.stringify(snap, null, 2)}
+                  </pre>
+                );
+              })()}
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

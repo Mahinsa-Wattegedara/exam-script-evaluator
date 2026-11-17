@@ -9,6 +9,52 @@ export type Question = {
   maxMarks: number;
 };
 
+export type RubricCriterion = {
+  id: string; // e.g. "C1", "C2" (REQ-11)
+  description: string;
+  maxMarks: number;
+  allowedPartialCredits: number[]; // e.g. [0, 0.5, 1.0] (REQ-11)
+  acceptedAlternatives: string[]; // e.g. accepted paraphrases (REQ-11)
+};
+
+export type ModelAnswerImage = {
+  id: string;
+  fileName: string;
+  fileFormat: "JPEG" | "PNG";
+  fileSizeBytes: number;
+  originalUrl: string;
+  pageNumber: number;
+  width?: number;
+  height?: number;
+  blobKey?: string;
+};
+
+export type RubricVersion = {
+  version: number; // immutable v1, v2... (REQ-13)
+  questionId: string;
+  criteria: RubricCriterion[];
+  modelAnswerText?: string; // REQ-15 supplemental model answer
+  modelAnswerImages?: ModelAnswerImage[]; // Teacher uploaded answer script images
+  approved: boolean;
+  approvedAt?: string;
+  approvedBy?: string;
+};
+
+export type McqAnswerKeyItem = {
+  questionNumber: number;
+  correctOption: string; // "1"-"5" or "A"-"E"
+  pageNumber?: number;
+};
+
+export type McqMasterKey = {
+  approved: boolean;
+  approvedAt?: string;
+  approvedBy?: string;
+  optionLabels: string[];
+  items: McqAnswerKeyItem[];
+  masterImages?: ModelAnswerImage[];
+};
+
 export type Assessment = {
   id: string;
   title: string;
@@ -220,6 +266,8 @@ export type AuditEvent = { id: string; at: string; actor: string; action: string
 
 export type State = {
   assessment: Assessment;
+  rubrics: RubricVersion[];
+  mcqMasterKey?: McqMasterKey;
   scripts: Script[];
   failures: UploadFailure[];
   regions: AnswerRegion[];

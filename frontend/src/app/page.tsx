@@ -127,26 +127,55 @@ export default function Overview() {
 
         <Card>
           <CardHeader
-            title="Questions"
+            title="Questions & Rubrics"
+            sub="Module 2 Rubric Knowledge"
             right={
-              <Button size="sm" onClick={() => actions.addQuestion()}>
-                + Add question
-              </Button>
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/rubric"
+                  className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Marking scheme →
+                </Link>
+                <Button size="sm" onClick={() => actions.addQuestion()}>
+                  + Add question
+                </Button>
+              </div>
             }
           />
           {assessment.questions.length === 0 ? (
             <div className="px-5 py-8 text-center text-xs text-slate-500">
-              No questions added yet. Click &ldquo;+ Add question&rdquo; or run AI Auto-Segment on an uploaded script.
+              No questions added yet. Click &ldquo;+ Add question&rdquo; or open the Marking Scheme page to set up criteria.
             </div>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {assessment.questions.map((q) => (
-                <li key={q.id} className="flex gap-3 px-5 py-2.5 text-sm">
-                  <span className="font-mono font-semibold text-indigo-600">{q.number}</span>
-                  <span className="flex-1 text-slate-700">{q.prompt}</span>
-                  <span className="text-xs text-slate-400">{q.maxMarks}m</span>
-                </li>
-              ))}
+              {assessment.questions.map((q) => {
+                const approvedRubric = state.rubrics.find((r) => r.questionId === q.id && r.approved);
+                return (
+                  <li key={q.id} className="flex flex-col gap-1.5 px-5 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold text-indigo-600">{q.number}</span>
+                        <span className="text-xs text-slate-400">({q.maxMarks} marks)</span>
+                      </div>
+                      {approvedRubric ? (
+                        <Badge tone="green">Rubric v{approvedRubric.version} ✓</Badge>
+                      ) : (
+                        <Badge tone="amber">Pending Rubric</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-600 line-clamp-1">{q.prompt}</div>
+                    <div className="pt-1 text-right">
+                      <Link
+                        href={`/rubric?q=${q.id}`}
+                        className="text-xs font-medium text-indigo-600 hover:underline"
+                      >
+                        Model answer &amp; criteria →
+                      </Link>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
