@@ -12,7 +12,6 @@ export function buildSeed(): State {
       questions: [],
     },
     rubrics: [],
-    mcqMasterKey: undefined,
     scripts: [],
     failures: [],
     regions: [],

@@ -3,7 +3,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui";
 import { useStore } from "@/lib/store";
-import type { McqOptionStyle, ModelAnswerImage, RubricCriterion } from "@/lib/types";
+import type { ModelAnswerImage, RubricCriterion } from "@/lib/types";
 
 function RubricContent() {
   const searchParams = useSearchParams();
@@ -11,7 +11,6 @@ function RubricContent() {
   const { state, actions } = useStore();
   const { assessment, rubrics } = state;
 
-  const [mode, setMode] = useState<"STRUCTURED" | "MCQ">("STRUCTURED");
   const [selectedQId, setSelectedQId] = useState<string>(
     qParam || assessment.questions[0]?.id || "",
   );
@@ -37,15 +36,6 @@ function RubricContent() {
   const [zoom, setZoom] = useState<number>(1.0);
   const [validationMsg, setValidationMsg] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isExtractingOcr, setIsExtractingOcr] = useState<boolean>(false);
-
-  // MCQ Master Key state
-  const [mcqTotalQ, setMcqTotalQ] = useState<number>(50);
-  const [mcqOptionStyle, setMcqOptionStyle] = useState<McqOptionStyle>("NUMERIC");
-  const [mcqKeys, setMcqKeys] = useState<Record<number, string>>({});
-  const [mcqSection, setMcqSection] = useState<number>(0);
-  const [mcqMasterImages, setMcqMasterImages] = useState<ModelAnswerImage[]>([]);
-  const [mcqZoom, setMcqZoom] = useState<number>(1.0);
-  const [isMcqOcr, setIsMcqOcr] = useState<boolean>(false);
 
   // Initialize structured rubric draft when question changes
   useEffect(() => {
@@ -98,23 +88,6 @@ function RubricContent() {
     setValidationMsg(null);
   }, [selectedQId, currentQ?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Initialize MCQ master key from store
-  useEffect(() => {
-    if (state.mcqMasterKey) {
-      const map: Record<number, string> = {};
-      state.mcqMasterKey.items.forEach((it) => {
-        map[it.questionNumber] = it.correctOption;
-      });
-      setMcqKeys(map);
-      if (state.mcqMasterKey.masterImages) {
-        setMcqMasterImages(state.mcqMasterKey.masterImages);
-      }
-      if (state.mcqMasterKey.items.length > 50) {
-        setMcqTotalQ(state.mcqMasterKey.items.length);
-      }
-    }
-  }, [state.mcqMasterKey]);
-
   // Compute criteria sum
   const criteriaSum = Number(
     criteria.reduce((acc, c) => acc + (Number(c.maxMarks) || 0), 0).toFixed(2),
@@ -123,7 +96,7 @@ function RubricContent() {
   const isSumValid = currentQ ? Math.abs(criteriaSum - qMaxMarks) < 0.001 : false;
 
   // Handle uploading teacher model answer image
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, isMcqMode = false) {
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -137,20 +110,16 @@ function RubricContent() {
           fileFormat: file.type.includes("png") ? "PNG" : "JPEG",
           fileSizeBytes: file.size,
           originalUrl: url,
-          pageNumber: isMcqMode ? mcqMasterImages.length + 1 : modelImages.length + 1,
+          pageNumber: modelImages.length + 1,
         };
 
-        if (isMcqMode) {
-          setMcqMasterImages((prev) => [...prev, newImg]);
-        } else {
-          setModelImages((prev) => {
-            const next = [...prev, newImg];
-            if (currentQ) {
-              actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, next);
-            }
-            return next;
-          });
-        }
+        setModelImages((prev) => {
+          const next = [...prev, newImg];
+          if (currentQ) {
+            actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, next);
+          }
+          return next;
+        });
       };
       reader.readAsDataURL(file);
     });
@@ -194,46 +163,6 @@ function RubricContent() {
     }
   }
 
-  // Handle OCR extraction on MCQ master sheet
-  async function runMcqMasterOcr() {
-    const curImg = mcqMasterImages[0];
-    if (!curImg) return;
-    setIsMcqOcr(true);
-    try {
-      const base64Data = curImg.originalUrl.includes(",")
-        ? curImg.originalUrl.split(",")[1]
-        : curImg.originalUrl;
-      const res = await fetch("/api/ocr/mcq", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          images: [
-            {
-              pageNumber: 1,
-              mimeType: curImg.fileFormat === "PNG" ? "image/png" : "image/jpeg",
-              base64Data,
-            },
-          ],
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && Array.isArray(data.items)) {
-        const nextKeys: Record<number, string> = { ...mcqKeys };
-        data.items.forEach((it: { questionNumber: number; selectedOption: string }) => {
-          if (it.selectedOption && it.selectedOption !== "BLANK" && it.selectedOption !== "MULTIPLE") {
-            nextKeys[it.questionNumber] = it.selectedOption;
-          }
-        });
-        setMcqKeys(nextKeys);
-        if (data.optionStyle) setMcqOptionStyle(data.optionStyle);
-      }
-    } catch {
-      // Keep existing keys
-    } finally {
-      setIsMcqOcr(false);
-    }
-  }
-
   // Approve structured rubric
   function handleApproveRubric() {
     if (!currentQ) return;
@@ -248,73 +177,10 @@ function RubricContent() {
     }
   }
 
-  // Approve MCQ master key
-  function handleApproveMcqKey() {
-    const items = Object.entries(mcqKeys).map(([qNum, opt]) => ({
-      questionNumber: Number(qNum),
-      correctOption: opt,
-    }));
-    actions.setMcqMasterKey({
-      approved: true,
-      approvedAt: new Date().toISOString(),
-      approvedBy: "Dr. S. Silva (Teacher)",
-      optionLabels: mcqOptionStyle === "NUMERIC" ? ["1", "2", "3", "4", "5"] : ["A", "B", "C", "D", "E"],
-      items,
-      masterImages: mcqMasterImages,
-    });
-    setValidationMsg({
-      ok: true,
-      msg: `MCQ Master Answer Key approved (${items.length} questions keyed). Student answer sheets will be graded against this key.`,
-    });
-  }
-
-  // MCQ Section chunking
-  const mcqSectionSize = 20;
-  const mcqSectionsCount = Math.ceil(mcqTotalQ / mcqSectionSize);
-  const currentSectionStart = mcqSection * mcqSectionSize + 1;
-  const currentSectionEnd = Math.min((mcqSection + 1) * mcqSectionSize, mcqTotalQ);
-  const currentSectionQuestions = Array.from(
-    { length: currentSectionEnd - currentSectionStart + 1 },
-    (_, i) => currentSectionStart + i,
-  );
-  const mcqLabels = mcqOptionStyle === "NUMERIC" ? ["1", "2", "3", "4", "5"] : ["A", "B", "C", "D", "E"];
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Marking Scheme & Model Answers"
-        right={
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs shadow-xs">
-            <button
-              type="button"
-              onClick={() => {
-                setMode("STRUCTURED");
-                setValidationMsg(null);
-              }}
-              className={`rounded-md px-3.5 py-1.5 font-semibold transition ${
-                mode === "STRUCTURED"
-                  ? "bg-slate-900 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Structured / Essay Rubrics
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode("MCQ");
-                setValidationMsg(null);
-              }}
-              className={`rounded-md px-3.5 py-1.5 font-semibold transition ${
-                mode === "MCQ"
-                  ? "bg-slate-900 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              MCQ Master Answer Key
-            </button>
-          </div>
-        }
       />
 
       {validationMsg && (
@@ -326,9 +192,8 @@ function RubricContent() {
         </Alert>
       )}
 
-      {/* MODE 1: STRUCTURED / ESSAY RUBRICS */}
-      {mode === "STRUCTURED" && (
-        <div className="space-y-5">
+      {/* STRUCTURED / ESSAY RUBRICS WORKSPACE */}
+      <div className="space-y-5">
           {/* Question Selector Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
             <div className="flex flex-wrap items-center gap-2">
@@ -394,7 +259,7 @@ function RubricContent() {
                           accept="image/jpeg,image/png"
                           multiple
                           className="hidden"
-                          onChange={(e) => handleImageUpload(e, false)}
+                          onChange={(e) => handleImageUpload(e)}
                         />
                       </label>
                     }
@@ -416,7 +281,7 @@ function RubricContent() {
                             accept="image/jpeg,image/png"
                             multiple
                             className="hidden"
-                            onChange={(e) => handleImageUpload(e, false)}
+                            onChange={(e) => handleImageUpload(e)}
                           />
                         </label>
                       </div>
@@ -696,248 +561,6 @@ function RubricContent() {
             </div>
           )}
         </div>
-      )}
-
-      {/* MODE 2: MCQ MASTER ANSWER KEY */}
-      {mode === "MCQ" && (
-        <div className="grid gap-6 lg:grid-cols-12">
-          {/* LEFT PANEL: Master Sheet Image */}
-          <div className="space-y-4 lg:col-span-6">
-            <Card>
-              <CardHeader
-                title="Teacher Master Answer Bubble Sheet"
-                sub="Upload the completed answer sheet image (scan or photo)"
-                right={
-                  <label className="cursor-pointer">
-                    <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-xs">
-                      + Upload Master Sheet
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png"
-                      className="hidden"
-                      onChange={(e) => handleImageUpload(e, true)}
-                    />
-                  </label>
-                }
-              />
-              <div className="space-y-3 p-4">
-                {mcqMasterImages.length === 0 ? (
-                  <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-6 text-center">
-                    <svg viewBox="0 0 24 24" className="h-10 w-10 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    <div className="mt-2 text-sm font-semibold text-slate-800">No master answer sheet uploaded</div>
-                    <p className="mt-1 max-w-sm text-xs text-slate-500">
-                      Upload the teacher&apos;s answer key sheet image to view it side-by-side or auto-detect the correct bubbles.
-                    </p>
-                    <label className="mt-4 cursor-pointer rounded-md bg-white border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs">
-                      Browse image
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png"
-                        className="hidden"
-                        onChange={(e) => handleImageUpload(e, true)}
-                      />
-                    </label>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1">
-                        <Button size="sm" onClick={() => setMcqZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}>
-                          −
-                        </Button>
-                        <span className="w-10 text-center font-mono text-xs">{Math.round(mcqZoom * 100)}%</span>
-                        <Button size="sm" onClick={() => setMcqZoom((z) => Math.min(3, Number((z + 0.25).toFixed(2))))}>
-                          +
-                        </Button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={isMcqOcr}
-                          onClick={runMcqMasterOcr}
-                        >
-                          {isMcqOcr ? "Scanning bubbles…" : "Auto-read master bubbles →"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setMcqMasterImages([])}
-                        >
-                          Clear
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="max-h-[68vh] overflow-auto rounded-lg border border-slate-300 bg-slate-100 p-2 text-center">
-                      <div style={{ width: `${mcqZoom * 100}%`, margin: "0 auto" }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={mcqMasterImages[0]?.originalUrl}
-                          alt="Master MCQ Sheet"
-                          className="rounded border border-slate-200 bg-white shadow-xs max-w-full"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
-
-          {/* RIGHT PANEL: MCQ Master Answer Key Grid */}
-          <div className="space-y-4 lg:col-span-6">
-            <Card>
-              <CardHeader
-                title="Official Master Answer Key"
-                sub={`Keys defined: ${Object.keys(mcqKeys).length} / ${mcqTotalQ} questions`}
-                right={
-                  <div className="flex items-center gap-2">
-                    {state.mcqMasterKey?.approved ? (
-                      <Badge tone="green">Key Approved ✓</Badge>
-                    ) : (
-                      <Badge tone="amber">Pending Approval</Badge>
-                    )}
-                  </div>
-                }
-              />
-              <div className="space-y-4 p-5">
-                {/* Configuration Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-500">Bubble labels:</span>
-                    <button
-                      type="button"
-                      onClick={() => setMcqOptionStyle("NUMERIC")}
-                      className={`rounded px-2 py-0.5 font-mono font-semibold transition ${
-                        mcqOptionStyle === "NUMERIC" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      1, 2, 3, 4, 5
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMcqOptionStyle("ALPHA")}
-                      className={`rounded px-2 py-0.5 font-mono font-semibold transition ${
-                        mcqOptionStyle === "ALPHA" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      A, B, C, D, E
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-500">Total questions:</span>
-                    {[50, 100].map((tot) => (
-                      <button
-                        key={tot}
-                        type="button"
-                        onClick={() => {
-                          setMcqTotalQ(tot);
-                          setMcqSection(0);
-                        }}
-                        className={`rounded px-2 py-0.5 font-semibold transition ${
-                          mcqTotalQ === tot ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {tot} Qs
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Section Buttons */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {Array.from({ length: mcqSectionsCount }, (_, idx) => {
-                    const start = idx * mcqSectionSize + 1;
-                    const end = Math.min((idx + 1) * mcqSectionSize, mcqTotalQ);
-                    const active = idx === mcqSection;
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setMcqSection(idx)}
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                          active
-                            ? "border-indigo-600 bg-indigo-600 text-white shadow-xs"
-                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        Q{start}–{end}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Question Key Grid */}
-                <div className="space-y-2 max-h-[50vh] overflow-auto pr-1">
-                  {currentSectionQuestions.map((qNum) => {
-                    const currentSelected = mcqKeys[qNum];
-                    return (
-                      <div
-                        key={qNum}
-                        className={`flex items-center justify-between rounded-lg border px-4 py-2 text-sm transition ${
-                          currentSelected ? "border-slate-200 bg-white" : "border-amber-200 bg-amber-50/40"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-10 font-mono font-semibold text-slate-800">Q{qNum}</span>
-                          {currentSelected ? (
-                            <Badge tone="indigo">Key: {currentSelected}</Badge>
-                          ) : (
-                            <Badge tone="amber">Unset</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {mcqLabels.map((opt) => {
-                            const isPicked = currentSelected === opt;
-                            return (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() => {
-                                  setMcqKeys((prev) => ({
-                                    ...prev,
-                                    [qNum]: opt,
-                                  }));
-                                }}
-                                className={`h-8 w-8 rounded-full font-mono text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                                  isPicked
-                                    ? "bg-indigo-600 text-white shadow-xs"
-                                    : "border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-                                }`}
-                              >
-                                {opt}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Approve Button */}
-                <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                  <div className="text-xs text-slate-500">
-                    {Object.keys(mcqKeys).length === mcqTotalQ ? (
-                      <span className="font-medium text-emerald-700">✓ All {mcqTotalQ} questions have official keys.</span>
-                    ) : (
-                      <span>{mcqTotalQ - Object.keys(mcqKeys).length} question keys remaining.</span>
-                    )}
-                  </div>
-                  <Button variant="success" onClick={handleApproveMcqKey}>
-                    Approve Master Answer Key →
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

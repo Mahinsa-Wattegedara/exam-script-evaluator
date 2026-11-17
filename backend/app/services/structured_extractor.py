@@ -3,6 +3,8 @@ import base64
 import io
 import json
 import re
+import os
+from pathlib import Path
 from collections import defaultdict
 from typing import Any
 
@@ -12,12 +14,35 @@ from PIL import Image, ImageEnhance, ImageOps
 from app.schemas.module1 import (
     ExtractedFlagSchema,
     ExtractedSpanSchema,
-    McqPageImagePayload,
+    ScriptPageImagePayload,
     RectSchema,
     StructuredQuestionResultSchema,
     StructuredRegionPayload,
 )
-from app.services.mcq_extractor import _resolve_gemini_api_key, _resolve_gemini_model
+
+DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
+
+
+def _resolve_env_var(name: str, default: str = "") -> str:
+    val = os.getenv(name, "").strip()
+    if val:
+        return val
+    base_dir = Path(__file__).resolve().parents[2]
+    for env_path in (base_dir / ".env", base_dir.parent / "frontend" / ".env"):
+        if env_path.exists():
+            for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                stripped = line.strip()
+                if stripped.startswith(f"{name}="):
+                    return stripped.split("=", 1)[1].strip().strip('"').strip("'")
+    return default
+
+
+def _resolve_gemini_api_key() -> str:
+    return _resolve_env_var("GEMINI_API_KEY", "")
+
+
+def _resolve_gemini_model() -> str:
+    return _resolve_env_var("GEMINI_MODEL", DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
 
 STRUCTURED_OCR_PROMPT = """You are an ultra-precise academic handwritten answer script transcriber for university examinations.
 You are inspecting cropped image region(s) of a single student's handwritten response to ONE question.
@@ -301,7 +326,7 @@ async def extract_structured_from_regions(
 
 
 async def extract_structured_from_pages(
-    pages: list[McqPageImagePayload],
+    pages: list[ScriptPageImagePayload],
 ) -> tuple[str, list[StructuredQuestionResultSchema]]:
     """
     Auto-segments full handwritten script pages into detected questions with bounding boxes

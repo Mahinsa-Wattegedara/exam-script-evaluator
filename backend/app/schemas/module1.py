@@ -51,46 +51,12 @@ class AnswerReadySchema(BaseModel):
     ]
 
 
-class McqPageImagePayload(BaseModel):
+class ScriptPageImagePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pageNumber: int = Field(..., ge=1, le=10)
     mimeType: str = "image/jpeg"
     base64Data: str
-
-
-class McqExtractionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    scriptId: Optional[str] = None
-    images: list[McqPageImagePayload] = Field(..., min_length=1, max_length=10)
-
-
-class McqItemSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    pageNumber: Optional[int] = Field(None, ge=1, le=10)
-    questionNumber: int = Field(..., ge=1)
-    selectedOption: Literal[
-        "A", "B", "C", "D", "E",
-        "1", "2", "3", "4", "5",
-        "BLANK", "MULTIPLE",
-    ]
-    markedOptions: Optional[list[str]] = None
-    confidence: float | Literal["unknown"]
-    note: Optional[str] = None
-    edited: Optional[bool] = None
-
-
-class McqExtractionResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: bool
-    model: Optional[str] = None
-    optionStyle: Optional[Literal["ALPHA", "NUMERIC"]] = None
-    optionLabels: Optional[list[str]] = None
-    items: list[McqItemSchema] = Field(default_factory=list)
-    error: Optional[str] = None
 
 
 class StructuredRegionPayload(BaseModel):
@@ -107,7 +73,7 @@ class StructuredRegionPayload(BaseModel):
 class StructuredOcrRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    pages: Optional[list[McqPageImagePayload]] = Field(default=None, max_length=10)
+    pages: Optional[list[ScriptPageImagePayload]] = Field(default=None, max_length=10)
     regions: Optional[list[StructuredRegionPayload]] = Field(default=None, max_length=25)
 
 

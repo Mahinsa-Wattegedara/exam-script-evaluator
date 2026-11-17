@@ -13,21 +13,8 @@ export default function Overview() {
   const { answers, scripts, assessment } = state;
   const count = (f: (s: (typeof answers)[number]["routingStatus"]) => boolean) => answers.filter((a) => f(a.routingStatus)).length;
 
-  const awaitingReviewCount =
-    count((s) => s === "NEEDS_REVIEW") +
-    scripts.filter((s) => {
-      if (s.paperType !== "MCQ" || !s.mcqExtraction || s.mcqExtraction.verified) return false;
-      return s.mcqExtraction.items.some(
-        (i) =>
-          i.selectedOption === "BLANK" ||
-          i.selectedOption === "MULTIPLE" ||
-          (typeof i.confidence === "number" && i.confidence < 0.8),
-      );
-    }).length;
-
-  const approvedCount =
-    count((s) => s === "READY_FOR_AI") +
-    scripts.filter((s) => s.paperType === "MCQ" && s.mcqExtraction?.verified).length;
+  const awaitingReviewCount = count((s) => s === "NEEDS_REVIEW");
+  const approvedCount = count((s) => s === "READY_FOR_AI");
 
   const stats = [
     { label: "Scripts", value: `${scripts.length}`, tone: "text-slate-900" },
@@ -88,14 +75,7 @@ export default function Overview() {
                   const status = scriptStatus(state, s);
                   const ans = answers.filter((a) => a.scriptId === s.id);
                   const approved = ans.filter((a) => a.routingStatus !== "NEEDS_REVIEW").length;
-                  const answersCol =
-                    s.paperType === "MCQ"
-                      ? s.mcqExtraction
-                        ? `${s.mcqExtraction.items.length} MCQs`
-                        : "—"
-                      : ans.length
-                        ? `${approved}/${ans.length}`
-                        : "—";
+                  const answersCol = ans.length ? `${approved}/${ans.length}` : "—";
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/60">
                       <td className="px-5 py-3">

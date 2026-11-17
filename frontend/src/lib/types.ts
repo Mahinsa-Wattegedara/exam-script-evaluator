@@ -40,21 +40,6 @@ export type RubricVersion = {
   approvedBy?: string;
 };
 
-export type McqAnswerKeyItem = {
-  questionNumber: number;
-  correctOption: string; // "1"-"5" or "A"-"E"
-  pageNumber?: number;
-};
-
-export type McqMasterKey = {
-  approved: boolean;
-  approvedAt?: string;
-  approvedBy?: string;
-  optionLabels: string[];
-  items: McqAnswerKeyItem[];
-  masterImages?: ModelAnswerImage[];
-};
-
 export type Assessment = {
   id: string;
   title: string;
@@ -86,34 +71,12 @@ export type ScriptImage = {
 
 export type BatchStatus = "COMPLETE" | "PARTIAL_FAILURE";
 
-export type PaperType = "STRUCTURED" | "MCQ";
-
-export type McqOptionStyle = "ALPHA" | "NUMERIC";
-
-export type McqItem = {
-  pageNumber?: number;
-  questionNumber: number;
-  selectedOption: string; // "A"-"E" | "1"-"5" | "BLANK" | "MULTIPLE"
-  markedOptions?: string[];
-  confidence: number | "unknown";
-  note?: string;
-  edited?: boolean;
-};
-
-export type McqExtraction = {
-  extractedAt: string;
-  model: string;
-  optionStyle?: McqOptionStyle;
-  optionLabels?: string[];
-  verified: boolean;
-  items: McqItem[];
-};
+export type PaperType = "STRUCTURED";
 
 export type Script = {
   id: string;
   pseudonymousCode: string; // e.g. SCR-7F3A
   paperType?: PaperType;
-  mcqExtraction?: McqExtraction;
   images: ScriptImage[];
   uploadedAt: string;
   batchStatus: BatchStatus;
@@ -267,7 +230,6 @@ export type AuditEvent = { id: string; at: string; actor: string; action: string
 export type State = {
   assessment: Assessment;
   rubrics: RubricVersion[];
-  mcqMasterKey?: McqMasterKey;
   scripts: Script[];
   failures: UploadFailure[];
   regions: AnswerRegion[];

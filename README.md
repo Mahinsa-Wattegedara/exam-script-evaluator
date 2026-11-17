@@ -3,7 +3,7 @@
 > **AI-Assisted Exam Script Evaluation Platform**  
 > University of Moratuwa (UOM) — Software Engineering Project
 
-Exam Script Evaluator is an enterprise platform designed for evaluating photographed and scanned exam answer scripts (both handwritten structured answers and MCQ bubble sheets) using evidence-based AI transcription, human moderation, and teacher supervision.
+Exam Script Evaluator is an enterprise platform designed for evaluating photographed and scanned handwritten exam answer scripts using evidence-based AI transcription, human moderation, and teacher supervision.
 
 ---
 
@@ -32,10 +32,7 @@ exam-script-evaluator/
 * **Teacher-Only Intake**: Only teachers upload scripts, mask student headers, map answer regions, and approve transcripts. Students can access only released results and dispute mechanisms.
 * **Identity Header Masking**: Interactive bounding box masking (`react-image-crop`) to guarantee student anonymity before AI processing (SRS NFR-02).
 * **Handwritten / Structured Answer OCR**: Region mapping, multi-page continuation joining, confidence scoring, and side-by-side transcript review.
-* **MCQ Answer Sheet Extraction**:
-  * High-precision OMR connected-component bubble grid detection with Gemini Vision option labeling (1–5 vs A–E).
-  * Independent per-page question scoping (`Q1`–`Q50` per sheet) with dynamic section chunking and side-by-side verification.
-  * Ambiguity flagging for unshaded (`BLANK`) or multiple shaded (`MULTIPLE`) options.
+* **Marking Scheme & Rubrics**: Teacher model answer upload, multi-criterion analytic rubrics with strict sum validation, and immutable rubric versioning.
 * **Immutable Contract Generation**: Final teacher approval generates the strictly versioned `AnswerReady` contract for downstream evaluation.
 
 ---

@@ -170,14 +170,6 @@ export function buildAnswerReady(state: State, a: AnswerRecord): AnswerReady | n
 export const STAGES = ["Uploaded", "Pages ordered", "Headers masked", "Answers mapped", "Extracted", "Transcripts approved"] as const;
 
 export function scriptStage(state: State, s: Script): number {
-  if (s.paperType === "MCQ") {
-    if (s.mcqExtraction?.verified) return 6;
-    if (s.mcqExtraction) return 5;
-    const allMasked = s.images.length > 0 && s.images.every((i) => i.maskStatus !== "PENDING");
-    if (allMasked && s.pagesConfirmed) return 3;
-    if (s.pagesConfirmed) return 2;
-    return 1;
-  }
   const answers = state.answers.filter((a) => a.scriptId === s.id);
   const allMasked = s.images.length > 0 && s.images.every((i) => i.maskStatus !== "PENDING");
   if (answers.length && answers.every((a) => a.routingStatus !== "NEEDS_REVIEW" && a.routingStatus !== "NOT_EXTRACTED")) return 6;
@@ -198,29 +190,7 @@ export function scriptStatus(state: State, s: Script): ScriptStatusBadge {
     return { label: "Upload issue", tone: "red" };
   }
 
-  if (s.paperType === "MCQ") {
-    if (s.mcqExtraction?.verified) {
-      return { label: "Approved", tone: "green" };
-    }
-    if (s.mcqExtraction) {
-      const hasFlagged = s.mcqExtraction.items.some(
-        (i) =>
-          i.selectedOption === "BLANK" ||
-          i.selectedOption === "MULTIPLE" ||
-          (typeof i.confidence === "number" && i.confidence < 0.8),
-      );
-      if (hasFlagged) {
-        return { label: "Needs review", tone: "amber" };
-      }
-      return { label: "Extracted", tone: "blue" };
-    }
-    const allMasked = s.images.length > 0 && s.images.every((i) => i.maskStatus !== "PENDING");
-    if (allMasked && s.pagesConfirmed) return { label: "Masked", tone: "slate" };
-    if (s.pagesConfirmed) return { label: "Pages ordered", tone: "slate" };
-    return { label: "Uploaded", tone: "slate" };
-  }
-
-  // Structured / Essay
+  // Structured / Essay handwritten
   const answers = state.answers.filter((a) => a.scriptId === s.id);
   if (
     answers.length > 0 &&

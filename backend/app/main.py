@@ -20,13 +20,10 @@ from app.schemas.auth import (
     SessionVerifyResponseSchema,
 )
 from app.schemas.module1 import (
-    McqExtractionRequest,
-    McqExtractionResponse,
     StructuredOcrRequest,
     StructuredOcrResponse,
 )
 from app.services.crypto_service import verify_session_jwt
-from app.services.mcq_extractor import extract_mcq_from_images
 from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
 
 # Load environment variables from backend/.env or frontend/.env
@@ -62,22 +59,10 @@ async def health_check() -> dict[str, str]:
     }
 
 
-@app.post("/api/v1/module1/ocr/mcq", response_model=McqExtractionResponse)
-async def extract_mcq_endpoint(payload: McqExtractionRequest) -> McqExtractionResponse:
-    model_used, option_style, option_labels, items = await extract_mcq_from_images(payload.images)
-    return McqExtractionResponse(
-        ok=True,
-        model=model_used,
-        optionStyle=option_style,  # type: ignore[arg-type]
-        optionLabels=option_labels,
-        items=items,
-    )
-
-
 @app.post("/api/v1/module1/ocr/structured", response_model=StructuredOcrResponse)
 async def extract_structured_endpoint(payload: StructuredOcrRequest) -> StructuredOcrResponse:
-    from app.services.mcq_extractor import _resolve_gemini_model
     from app.services.structured_extractor import (
+        _resolve_gemini_model,
         extract_structured_from_pages,
         extract_structured_from_regions,
     )

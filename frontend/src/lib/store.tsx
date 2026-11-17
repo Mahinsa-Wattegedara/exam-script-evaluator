@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed } from "./seed";
-import type { AnswerRecord, FlagType, McqExtraction, McqMasterKey, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, UploadFailure, UserRole } from "./types";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, UploadFailure, UserRole } from "./types";
 
 const KEY = "m1-enterprise-state-v3";
 const ACTOR = "Dr. S. Silva";
@@ -172,12 +172,6 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       return result;
     },
 
-    setMcqMasterKey: (key: McqMasterKey) =>
-      mutate((d) => {
-        d.mcqMasterKey = key;
-        audit(d, "APPROVE_MCQ_KEY", `Approved MCQ Master Answer Key (${key.items.length} questions)`);
-      }),
-
     addUploads: (
       groups: { scriptId?: string; code: string; realStudentId?: string; paperType?: PaperType; images: ScriptImage[] }[],
       failures: UploadFailure[],
@@ -217,68 +211,6 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId);
         if (s) s.paperType = paperType;
-      }),
-
-    setMcqExtraction: (scriptId: string, extraction: McqExtraction) =>
-      mutate((d) => {
-        const s = d.scripts.find((x) => x.id === scriptId);
-        if (!s) return;
-        s.mcqExtraction = extraction;
-        s.pagesConfirmed = true;
-        s.mappingConfirmed = true;
-        audit(
-          d,
-          "EXTRACT_MCQ",
-          `${s.pseudonymousCode}: extracted ${extraction.items.length} MCQ answer(s) using ${extraction.model}`,
-        );
-      }),
-
-    updateMcqItem: (scriptId: string, questionNumber: number, selectedOption: string, pageNumber?: number) =>
-      mutate((d) => {
-        const s = d.scripts.find((x) => x.id === scriptId);
-        if (!s?.mcqExtraction) return;
-
-        if (s.images.length > 1 && s.mcqExtraction.items.some((i) => i.pageNumber === undefined)) {
-          const perPage = Math.ceil(s.mcqExtraction.items.length / s.images.length);
-          s.mcqExtraction.items.forEach((it, idx) => {
-            if (it.pageNumber === undefined) {
-              const imgIdx = Math.min(s.images.length - 1, Math.floor(idx / perPage));
-              it.pageNumber = s.images[imgIdx]?.pageNumber ?? (imgIdx + 1);
-              if (imgIdx > 0 && it.questionNumber > perPage) {
-                it.questionNumber = it.questionNumber - imgIdx * perPage;
-              }
-            }
-          });
-        }
-
-        const item = s.mcqExtraction.items.find((i) => {
-          const matchQ = i.questionNumber === questionNumber;
-          if (!matchQ) return false;
-          if (pageNumber !== undefined && i.pageNumber !== undefined) {
-            return i.pageNumber === pageNumber;
-          }
-          return true;
-        });
-        if (item) {
-          if (item.markedOptions && item.markedOptions.length > 1 && !item.markedOptions.includes(selectedOption)) {
-            return;
-          }
-          item.selectedOption = selectedOption;
-          item.edited = true;
-        }
-        s.mcqExtraction.verified = false;
-      }),
-
-    verifyMcqExtraction: (scriptId: string) =>
-      mutate((d) => {
-        const s = d.scripts.find((x) => x.id === scriptId);
-        if (!s?.mcqExtraction) return;
-        s.mcqExtraction.verified = true;
-        audit(
-          d,
-          "APPROVE_MCQ",
-          `${s.pseudonymousCode}: verified ${s.mcqExtraction.items.length} MCQ answer(s) for evaluation`,
-        );
       }),
 
     dismissFailure: (id: string) => mutate((d) => void (d.failures = d.failures.filter((f) => f.id !== id))),

@@ -33,7 +33,6 @@ export default function UploadPage() {
   const { state, actions } = useStore();
   const [staged, setStaged] = useState<Staged[]>([]);
   const [mode, setMode] = useState<"prefix" | "single">("prefix");
-  const [paperType, setPaperType] = useState<PaperType>("STRUCTURED");
   const [target, setTarget] = useState<string>("new");
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [realIds, setRealIds] = useState<Record<string, string>>({});
@@ -173,7 +172,7 @@ export default function UploadPage() {
         scriptId: mode === "single" && target !== "new" ? target : undefined,
         code: mode === "single" && target !== "new" ? codeFor(key) : c[key],
         realStudentId: realIds[key],
-        paperType,
+        paperType: "STRUCTURED",
         images,
       })),
       failures,
@@ -321,36 +320,6 @@ export default function UploadPage() {
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader title="Paper type" sub="Select assessment script format" />
-            <div className="grid grid-cols-2 gap-2 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setPaperType("STRUCTURED")}
-                className={`rounded-lg border px-3 py-2.5 text-left text-xs transition ${
-                  paperType === "STRUCTURED"
-                    ? "border-indigo-600 bg-indigo-50 font-semibold text-indigo-900"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <div>Handwritten / Essay</div>
-                <div className="mt-0.5 text-[11px] font-normal text-slate-500">Written answers</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaperType("MCQ")}
-                className={`rounded-lg border px-3 py-2.5 text-left text-xs transition ${
-                  paperType === "MCQ"
-                    ? "border-indigo-600 bg-indigo-50 font-semibold text-indigo-900"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <div>MCQ Bubble Sheet</div>
-                <div className="mt-0.5 text-[11px] font-normal text-slate-500">Shaded bubble answers</div>
-              </button>
-            </div>
-          </Card>
-
           <Card>
             <CardHeader title="Grouping" sub="How images are grouped into scripts" />
             <div className="space-y-3 px-5 py-4 text-sm">
