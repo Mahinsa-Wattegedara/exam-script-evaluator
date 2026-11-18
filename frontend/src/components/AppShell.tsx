@@ -203,14 +203,46 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* FIGMA XEYNERGY TOP BAR */}
         <header className="sticky top-0 z-20 flex h-18 lg:h-20 items-center justify-between border-b border-[#e4e7ef] bg-white px-8 shadow-2xs">
-          {/* Breadcrumb / Title */}
-          <div className="flex items-center gap-2.5 text-sm text-[#4b5563]">
-            <span className="font-semibold text-[#111827]">Assessments</span>
-            <span className="text-slate-400">›</span>
-            <span className="text-[#6b7280]">
-              {isTeacher ? "Teacher workspace" : "Student workspace"}
-            </span>
-          </div>
+          {/* Dynamic Breadcrumbs */}
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+            <Link
+              href="/"
+              className="text-[#4b5563] hover:text-[#4338ca] transition font-semibold"
+            >
+              Assessments
+            </Link>
+            <span className="text-slate-300">›</span>
+            {path === "/" ? (
+              <span className="font-semibold text-[#111827]">Overview</span>
+            ) : path === "/upload" ? (
+              <span className="font-semibold text-[#111827]">Upload scripts</span>
+            ) : path === "/scripts" ? (
+              <span className="font-semibold text-[#111827]">Scripts queue</span>
+            ) : path.startsWith("/scripts/") ? (
+              <>
+                <Link
+                  href="/scripts"
+                  className="text-[#4b5563] hover:text-[#4338ca] transition"
+                >
+                  Scripts
+                </Link>
+                <span className="text-slate-300">›</span>
+                <span className="font-semibold text-[#111827]">
+                  {state.scripts.find((s) => s.id === path.split("/")[2])?.pseudonymousCode || "Workspace"}
+                </span>
+              </>
+            ) : path === "/rubric" ? (
+              <span className="font-semibold text-[#111827]">Marking scheme</span>
+            ) : path === "/review" ? (
+              <span className="font-semibold text-[#111827]">Review queue</span>
+            ) : path === "/contract" ? (
+              <span className="font-semibold text-[#111827]">Export contract</span>
+            ) : (
+              <span className="font-semibold text-[#111827]">
+                {isTeacher ? "Teacher workspace" : "Student portal"}
+              </span>
+            )}
+          </nav>
 
           {/* Search, Notifications & Workspace Indicator */}
           <div className="flex items-center gap-3">
