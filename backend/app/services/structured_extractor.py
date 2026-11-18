@@ -54,6 +54,8 @@ CRITICAL RULES:
 {
   "blankDetected": false,
   "hasDiagramOrTable": false,
+  "hasUnsupportedContent": false,
+  "unsupportedReason": "",
   "lines": [
     {
       "lineNumber": 1,
@@ -64,7 +66,11 @@ CRITICAL RULES:
   ]
 }
 3. If the cropped region is completely blank (no handwritten answer, only ruled lines or empty margin), set "blankDetected": true and "lines": [].
-4. If the region contains a hand-drawn diagram, flowchart, circuit, graph, or complex table that cannot be faithfully represented as plain text lines, set "hasDiagramOrTable": true and still transcribe any legible labels or prose into "lines".
+4. Check for UNSUPPORTED CONTENT types (baseline system requirement):
+   - Hand-drawn diagrams, flowcharts, circuits, graphs, sketches, or tables
+   - Extensive mathematical derivations or calculus equations
+   - Multilingual / non-English handwriting
+   If any of these are present: set "hasUnsupportedContent": true (or "hasDiagramOrTable": true) and describe the reason in "unsupportedReason" (e.g. "Hand-drawn flowchart diagram detected", "Mathematical derivation steps detected", "Non-English handwriting detected"). Still transcribe any legible text lines.
 5. If any word or symbol is smudged, crossed out, or ambiguous, mark the unclear token with `[?]` inside "text", set lower "confidence" (e.g. 0.55 - 0.72), and describe the ambiguity briefly in "unclearNote".
 6. Every confidence value MUST be a float between 0.0 and 1.0."""
 
@@ -85,6 +91,8 @@ TASK:
       "bbox": { "x": 6.0, "y": 18.0, "width": 88.0, "height": 28.0 },
       "blankDetected": false,
       "hasDiagramOrTable": false,
+      "hasUnsupportedContent": false,
+      "unsupportedReason": "",
       "lines": [
         {
           "lineNumber": 1,
@@ -101,7 +109,7 @@ TASK:
 5. Transcribe handwritten text, mathematical notation, equations, bullet points, and terminology faithfully line by line. Never fabricate words not written by the student.
 6. If any word or symbol is smudged, crossed out, or ambiguous, mark the unclear token with `[?]` inside "text", set lower "confidence" (0.50 - 0.75), and describe it briefly in "unclearNote".
 7. If an answer region is blank or unanswered, set "blankDetected": true and "lines": [].
-8. If an answer contains a hand-drawn diagram, flowchart, graph, or complex table, set "hasDiagramOrTable": true while still transcribing any legible labels or prose.
+8. If an answer contains unsupported content (hand-drawn diagrams, flowcharts, graphs, extensive mathematical derivations, or multilingual non-English writing), set "hasUnsupportedContent": true and describe it in "unsupportedReason" (while still transcribing any legible labels or prose).
 9. Every confidence value MUST be a float between 0.0 and 1.0."""
 
 
@@ -188,6 +196,8 @@ def _build_spans_and_flags(
 ) -> tuple[bool, list[ExtractedSpanSchema], list[ExtractedFlagSchema], str]:
     blank_detected = bool(parsed.get("blankDetected", False))
     has_diagram = bool(parsed.get("hasDiagramOrTable", False))
+    has_unsupported = bool(parsed.get("hasUnsupportedContent", False))
+    unsupported_reason = str(parsed.get("unsupportedReason") or "").strip()
     raw_lines = parsed.get("lines", [])
 
     spans: list[ExtractedSpanSchema] = []
@@ -236,11 +246,16 @@ def _build_spans_and_flags(
             )
         )
 
-    if has_diagram:
+    if has_diagram or has_unsupported:
+        msg = (
+            unsupported_reason
+            or ("Diagram, flowchart, or non-linear sketch detected — route to manual marking." if has_diagram
+                else "Unsupported content (mathematical derivation, diagram, or multilingual text) detected — route to manual marking.")
+        )
         flags.append(
             ExtractedFlagSchema(
                 type="UNSUPPORTED_CONTENT",
-                message="Diagram, table, or non-linear sketch detected — verify or route for manual diagram review.",
+                message=msg,
             )
         )
 
