@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
-import { buildSeed } from "./seed";
+import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
 import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
@@ -47,12 +47,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
     ensureDefaultQuestions: () =>
       mutate((d) => {
         if (!d.assessment.questions || d.assessment.questions.length === 0) {
-          d.assessment.questions = [
-            { id: "q1", number: "Q1", prompt: "Question 1", maxMarks: 5 },
-            { id: "q2", number: "Q2", prompt: "Question 2", maxMarks: 5 },
-            { id: "q3", number: "Q3", prompt: "Question 3", maxMarks: 5 },
-            { id: "q4", number: "Q4", prompt: "Question 4", maxMarks: 5 },
-          ];
+          d.assessment.questions = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
           audit(d, "ASSESSMENT", "Initialized standard questions Q1-Q4");
         }
       }),
@@ -63,7 +58,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         d.assessment.questions.push({
           id: `q${nextIdx}`,
           number: `Q${nextIdx}`,
-          prompt: `Question ${nextIdx}`,
+          prompt: "",
           maxMarks: 4,
         });
       }),
@@ -296,7 +291,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           d.assessment.questions.push({
             id: questionId,
             number: num,
-            prompt: `Question ${num.replace(/\D/g, "") || d.assessment.questions.length + 1}`,
+            prompt: "",
             maxMarks: 5,
           });
         }
@@ -428,7 +423,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
               d.assessment.questions.push({
                 id: res.questionId,
                 number: label,
-                prompt: `Question ${idx + 1}`,
+                prompt: "",
                 maxMarks: 4,
               });
             } else {
@@ -715,12 +710,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
         if (!s.rubrics) s.rubrics = [];
         if (!s.assessment.questions || s.assessment.questions.length === 0) {
-          s.assessment.questions = [
-            { id: "q1", number: "Q1", prompt: "Question 1", maxMarks: 5 },
-            { id: "q2", number: "Q2", prompt: "Question 2", maxMarks: 5 },
-            { id: "q3", number: "Q3", prompt: "Question 3", maxMarks: 5 },
-            { id: "q4", number: "Q4", prompt: "Question 4", maxMarks: 5 },
-          ];
+          s.assessment.questions = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
+        } else {
+          s.assessment.questions = s.assessment.questions.map((q) => ({
+            ...q,
+            prompt: /^Question\s+\d+$/i.test(q.prompt.trim()) ? "" : q.prompt,
+          }));
         }
         if (!s.assessment.course || s.assessment.course === "CS2042 Operating Systems") {
           s.assessment.course = "Object Oriented Programming";

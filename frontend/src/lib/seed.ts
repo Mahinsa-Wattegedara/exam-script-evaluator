@@ -3,10 +3,10 @@ import { nowIso } from "./logic";
 import type { State } from "./types";
 
 export const DEFAULT_QUESTIONS = [
-  { id: "q1", number: "Q1", prompt: "Question 1", maxMarks: 5 },
-  { id: "q2", number: "Q2", prompt: "Question 2", maxMarks: 5 },
-  { id: "q3", number: "Q3", prompt: "Question 3", maxMarks: 5 },
-  { id: "q4", number: "Q4", prompt: "Question 4", maxMarks: 5 },
+  { id: "q1", number: "Q1", prompt: "", maxMarks: 5 },
+  { id: "q2", number: "Q2", prompt: "", maxMarks: 5 },
+  { id: "q3", number: "Q3", prompt: "", maxMarks: 5 },
+  { id: "q4", number: "Q4", prompt: "", maxMarks: 5 },
 ];
 
 export function buildSeed(): State {

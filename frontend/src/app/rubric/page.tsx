@@ -387,7 +387,7 @@ function RubricContent() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <h2 className="font-['Plus_Jakarta_Sans'] text-xl sm:text-2xl font-semibold text-[color:var(--x-ink,#111827)]">
-                    {currentQ.number} · {currentQ.prompt || "Question"}
+                    {currentQ.number} · {currentQ.prompt.trim() && !/^Question\s+\d+$/i.test(currentQ.prompt.trim()) ? currentQ.prompt : "Exam Question"}
                   </h2>
                   {activeRubric && (
                     <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
@@ -419,13 +419,21 @@ function RubricContent() {
                   <label className="block text-xs font-medium text-[color:var(--x-secondary,#4b5563)] mb-1">
                     Question prompt / topic
                   </label>
-                  <input
-                    type="text"
-                    value={currentQ.prompt}
-                    onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
-                    placeholder="Question prompt or description..."
-                    className="w-full h-10 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3.5 text-sm text-[color:var(--x-ink,#111827)] focus:border-indigo-600 focus:outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={/^Question\s+\d+$/i.test(currentQ.prompt.trim()) ? "" : currentQ.prompt}
+                      onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
+                      placeholder="Enter question here..."
+                      className="w-full h-10 rounded-xl border border-slate-300 bg-slate-50/40 pl-3.5 pr-9 text-sm text-[color:var(--x-ink,#111827)] placeholder:text-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:outline-none transition"
+                    />
+                    <span
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"
+                      aria-hidden="true"
+                    >
+                      ✎
+                    </span>
+                  </div>
                 </div>
                 <div className="w-full sm:w-32 shrink-0">
                   <label className="block text-xs font-medium text-[color:var(--x-secondary,#4b5563)] mb-1">
