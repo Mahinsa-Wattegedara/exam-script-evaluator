@@ -122,6 +122,9 @@ function RubricContent() {
 
     const updatedImages = [...modelImages, ...newImages];
     setModelImages(updatedImages);
+    if (newImages.length > 0) {
+      setSelectedImgIdx(modelImages.length);
+    }
     let targetQId = currentQ?.id;
     if (!targetQId && assessment.questions.length === 0) {
       actions.addQuestion();
@@ -130,6 +133,26 @@ function RubricContent() {
     }
     if (targetQId) {
       actions.saveRubricDraft(targetQId, criteria, modelAnswerText, updatedImages);
+    }
+  }
+
+  function handleRemoveModelImage(idxToRemove: number) {
+    const removed = modelImages[idxToRemove];
+    const nextImages = modelImages
+      .filter((_, i) => i !== idxToRemove)
+      .map((im, i) => ({ ...im, pageNumber: i + 1 }));
+    setModelImages(nextImages);
+    setSelectedImgIdx((prev) => {
+      if (nextImages.length === 0) return 0;
+      if (prev >= nextImages.length) return nextImages.length - 1;
+      if (prev > idxToRemove) return prev - 1;
+      return prev;
+    });
+    if (currentQ) {
+      if (removed?.id) {
+        actions.removeModelAnswerImage(currentQ.id, removed.id);
+      }
+      actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, nextImages);
     }
   }
 
@@ -276,7 +299,7 @@ function RubricContent() {
         /* Main Rubric Workspace Split Layout (Figma 121:2564) */
         <div className="flex flex-col gap-6 lg:flex-row items-start">
           {/* Left: Question Rail (Figma 121:2565) */}
-          <div className="w-full shrink-0 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-4 shadow-sm lg:w-64 space-y-4">
+          <div className="w-full shrink-0 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-4 shadow-sm lg:w-64 lg:sticky lg:top-24 space-y-4">
             <div className="text-xs font-semibold tracking-wider text-[color:var(--x-secondary,#4b5563)] uppercase px-2 pt-1">
               QUESTIONS
             </div>
@@ -358,37 +381,238 @@ function RubricContent() {
 
         {/* Right: Rubric Criteria & Model Answer Workspace (Figma 121:2574) */}
         {currentQ ? (
-          <div className="flex-1 w-full space-y-6">
-            {/* Header info */}
-            <div>
-              <h2 className="font-['Plus_Jakarta_Sans'] text-2xl font-semibold text-[color:var(--x-ink,#111827)]">
-                {currentQ.number} · {currentQ.prompt || "Question"}
-              </h2>
-              <input
-                type="text"
-                value={currentQ.prompt}
-                onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
-                placeholder="Question prompt or description..."
-                className="mt-2 w-full rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3.5 py-2 text-sm text-[color:var(--x-secondary,#4b5563)] focus:border-indigo-600 focus:outline-none"
-              />
+          <div className="flex-1 min-w-0 w-full space-y-6">
+            {/* Header info + Quick Actions */}
+            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-5 sm:p-6 shadow-sm space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="font-['Plus_Jakarta_Sans'] text-xl sm:text-2xl font-semibold text-[color:var(--x-ink,#111827)]">
+                    {currentQ.number} · {currentQ.prompt || "Question"}
+                  </h2>
+                  {activeRubric && (
+                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                      Approved v{activeRubric.version}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleSaveDraft}
+                    className="h-9 whitespace-nowrap rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-4 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Save draft
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApproveRubric}
+                    disabled={!isSumValid}
+                    className="h-9 whitespace-nowrap rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-4 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Approve version {activeRubric ? activeRubric.version + 1 : 1}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                <div className="flex-1 min-w-0">
+                  <label className="block text-xs font-medium text-[color:var(--x-secondary,#4b5563)] mb-1">
+                    Question prompt / topic
+                  </label>
+                  <input
+                    type="text"
+                    value={currentQ.prompt}
+                    onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
+                    placeholder="Question prompt or description..."
+                    className="w-full h-10 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3.5 text-sm text-[color:var(--x-ink,#111827)] focus:border-indigo-600 focus:outline-none"
+                  />
+                </div>
+                <div className="w-full sm:w-32 shrink-0">
+                  <label className="block text-xs font-medium text-[color:var(--x-secondary,#4b5563)] mb-1">
+                    Total marks
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    value={currentQ.maxMarks}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!Number.isNaN(val) && val >= 0.5) {
+                        actions.updateQuestion(currentQ.id, currentQ.prompt, val);
+                      }
+                    }}
+                    className="w-full h-10 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 font-['Plus_Jakarta_Sans'] text-sm font-semibold text-[color:var(--x-ink,#111827)] text-center focus:border-indigo-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Supplemental Model Answer Section — Directly at top so uploaded images appear immediately in viewport */}
+            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-5 sm:p-6 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
+                    Supplemental Model Answer &amp; Notes
+                  </h3>
+                  <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">
+                    Guides AI evaluators with reference handwriting and expected key points.
+                  </p>
+                </div>
+                <label className="cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3.5 py-2 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 shadow-xs transition">
+                  + Upload Reference Image
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => handleImageUpload(e)}
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2 items-stretch">
+                {/* Left Column: Reference Image View */}
+                <div className={`flex flex-col gap-3 min-w-0 ${modelImages.length > 0 ? "h-[380px]" : "min-h-[210px]"}`}>
+                  <div className="flex items-center justify-between h-6 shrink-0">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      Handwritten Model Answer
+                    </span>
+                    {modelImages.length > 0 && (
+                      <span className="text-[11px] font-medium text-slate-500">
+                        {modelImages.length} {modelImages.length === 1 ? "sheet" : "sheets"}
+                      </span>
+                    )}
+                  </div>
+                  {modelImages.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 text-center">
+                      <p className="text-xs text-slate-500">
+                        Upload a photo of your handwritten model answer sheet.
+                      </p>
+                      <label className="mt-3 cursor-pointer rounded-xl bg-white border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs">
+                        Browse files
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => handleImageUpload(e)}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col gap-2.5 min-h-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {modelImages.map((_, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setSelectedImgIdx(i)}
+                              className={`whitespace-nowrap shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                                selectedImgIdx === i
+                                  ? "bg-indigo-600 text-white"
+                                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              Page {i + 1}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setZoom((z) => Math.max(0.75, z - 0.25))}
+                              className="px-2 py-1 text-xs font-mono text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                              title="Zoom out"
+                            >
+                              -
+                            </button>
+                            <span className="px-2 text-xs font-mono text-slate-700 whitespace-nowrap select-none">
+                              {Math.round(zoom * 100)}%
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))}
+                              className="px-2 py-1 text-xs font-mono text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                              title="Zoom in"
+                            >
+                              +
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={runModelAnswerOcr}
+                            disabled={isExtractingOcr}
+                            className="whitespace-nowrap shrink-0 rounded-lg bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 cursor-pointer"
+                          >
+                            {isExtractingOcr ? "Extracting..." : "Extract text →"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveModelImage(selectedImgIdx)}
+                            className="whitespace-nowrap shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100 cursor-pointer"
+                            title="Remove current reference image"
+                            aria-label="Remove current reference image"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <img
+                          src={modelImages[selectedImgIdx]?.originalUrl}
+                          alt="Model Answer"
+                          style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
+                          className="w-full object-contain rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Model Answer Notes / Extracted Text */}
+                <div className={`flex flex-col gap-3 min-w-0 ${modelImages.length > 0 ? "h-[380px]" : "min-h-[210px]"}`}>
+                  <div className="flex items-center justify-between h-6 shrink-0">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      Supplemental Notes &amp; Points
+                    </span>
+                  </div>
+                  <textarea
+                    value={modelAnswerText}
+                    onChange={(e) => setModelAnswerText(e.target.value)}
+                    placeholder="Enter key points, expected steps, or click 'Extract text' from your uploaded sheet..."
+                    className="flex-1 min-h-0 w-full resize-none rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-3.5 text-sm font-mono text-[color:var(--x-ink,#111827)] focus:border-indigo-600 focus:outline-none"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Criteria Cards List */}
             <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
+                  Analytic Marking Criteria
+                </h3>
+                <span className="text-xs text-[color:var(--x-secondary,#4b5563)]">
+                  Optional model answer supports these criteria; criteria marks must total {qMaxMarks}.
+                </span>
+              </div>
               {criteria.map((c, idx) => (
                 <div
                   key={c.id || idx}
                   className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div>
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="shrink-0">
                         <div className="text-xs font-normal text-[color:var(--x-muted,#6b7280)]">ID</div>
                         <div className="font-mono text-sm font-semibold text-[color:var(--x-primary700,#3730a3)]">
                           {c.id || `C${idx + 1}`}
                         </div>
                       </div>
-                      <div className="flex-1 min-w-[280px]">
+                      <div className="flex-1 min-w-0">
                         <div className="text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
                           Criterion / accepted coverage
                         </div>
@@ -432,7 +656,7 @@ function RubricContent() {
                           onClick={() => {
                             setCriteria(criteria.filter((_, i) => i !== idx));
                           }}
-                          className="text-xs text-red-500 hover:text-red-700 pt-5"
+                          className="text-xs text-red-500 hover:text-red-700 pt-5 cursor-pointer"
                           title="Remove criterion"
                         >
                           ✕
@@ -483,130 +707,12 @@ function RubricContent() {
               + Add Criterion
             </Button>
 
-            <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">
-              Optional model answer supports these criteria; it does not add new criteria.
-            </p>
-
-            {/* Supplemental Model Answer Section (Side-by-Side Image & Transcript) */}
-            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
-                    Supplemental Model Answer &amp; Notes
-                  </h3>
-                  <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">
-                    Guides AI evaluators with reference handwriting and expected key points.
-                  </p>
-                </div>
-                <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 shadow-xs">
-                  + Upload Reference Image
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => handleImageUpload(e)}
-                  />
-                </label>
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-2 items-start">
-                {/* Reference Image View */}
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    Handwritten Model Answer
-                  </div>
-                  {modelImages.length === 0 ? (
-                    <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 text-center">
-                      <p className="text-xs text-slate-500">
-                        Upload a photo of your handwritten model answer sheet.
-                      </p>
-                      <label className="mt-3 cursor-pointer rounded-xl bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs">
-                        Browse files
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => handleImageUpload(e)}
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex gap-1.5">
-                          {modelImages.map((_, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setSelectedImgIdx(i)}
-                              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                                selectedImgIdx === i
-                                  ? "bg-indigo-600 text-white"
-                                  : "border border-slate-200 bg-white text-slate-700"
-                              }`}
-                            >
-                              Page {i + 1}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setZoom((z) => Math.max(0.75, z - 0.25))}
-                            className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-mono"
-                          >
-                            -
-                          </button>
-                          <span className="text-xs font-mono">{Math.round(zoom * 100)}%</span>
-                          <button
-                            onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))}
-                            className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-mono"
-                          >
-                            +
-                          </button>
-                          <button
-                            onClick={runModelAnswerOcr}
-                            disabled={isExtractingOcr}
-                            className="rounded-md bg-indigo-50 border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-                          >
-                            {isExtractingOcr ? "Extracting..." : "Extract text →"}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="overflow-auto max-h-[320px] rounded-xl border border-slate-200 bg-slate-50 p-2">
-                        <img
-                          src={modelImages[selectedImgIdx]?.originalUrl}
-                          alt="Model Answer"
-                          style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
-                          className="w-full object-contain rounded-lg"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Model Answer Notes / Extracted Text */}
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    Supplemental Notes &amp; Points
-                  </div>
-                  <textarea
-                    rows={10}
-                    value={modelAnswerText}
-                    onChange={(e) => setModelAnswerText(e.target.value)}
-                    placeholder="Enter key points, expected steps, or click 'Extract text' above from your uploaded sheet..."
-                    className="w-full rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-3 text-sm font-mono text-[color:var(--x-ink,#111827)] focus:border-indigo-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Action Bar (Figma 121:2582) */}
+            {/* Bottom Action Bar (Figma 121:2582) */}
             <div className="flex items-center justify-end gap-3 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-5 shadow-sm">
               <button
                 type="button"
                 onClick={handleSaveDraft}
-                className="h-12 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-6 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition"
+                className="h-12 whitespace-nowrap rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-6 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition cursor-pointer"
               >
                 Save draft
               </button>
@@ -614,7 +720,7 @@ function RubricContent() {
                 type="button"
                 onClick={handleApproveRubric}
                 disabled={!isSumValid}
-                className="h-12 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-12 whitespace-nowrap rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 Approve version {activeRubric ? activeRubric.version + 1 : 1}
               </button>
