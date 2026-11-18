@@ -2,7 +2,7 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, CardHeader } from "@/components/ui";
-import { useStore } from "@/lib/store";
+import { isPlaceholderPrompt, sanitizeCriterionDescription, useStore } from "@/lib/store";
 import type { ModelAnswerImage, RubricCriterion } from "@/lib/types";
 
 function RubricContent() {
@@ -43,18 +43,21 @@ function RubricContent() {
     if (existing) {
       setCriteria(
         existing.criteria.length > 0
-          ? [...existing.criteria]
+          ? existing.criteria.map((c) => ({
+              ...c,
+              description: existing.approved ? c.description : sanitizeCriterionDescription(c.description),
+            }))
           : [
               {
                 id: "C1",
-                description: `Primary concept and key definition for ${currentQ.number}`,
+                description: "",
                 maxMarks: Number((currentQ.maxMarks * 0.5).toFixed(1)),
                 allowedPartialCredits: [0, Number((currentQ.maxMarks * 0.25).toFixed(1)), Number((currentQ.maxMarks * 0.5).toFixed(1))],
                 acceptedAlternatives: ["Equivalent valid terminology accepted"],
               },
               {
                 id: "C2",
-                description: `Explanation, evidence, or example for ${currentQ.number}`,
+                description: "",
                 maxMarks: Number((currentQ.maxMarks * 0.5).toFixed(1)),
                 allowedPartialCredits: [0, Number((currentQ.maxMarks * 0.25).toFixed(1)), Number((currentQ.maxMarks * 0.5).toFixed(1))],
                 acceptedAlternatives: ["Concrete example or application accepted"],
@@ -67,14 +70,14 @@ function RubricContent() {
       setCriteria([
         {
           id: "C1",
-          description: `Key definition / core principle for ${currentQ.number}`,
+          description: "",
           maxMarks: Number((currentQ.maxMarks * 0.5).toFixed(1)),
           allowedPartialCredits: [0, Number((currentQ.maxMarks * 0.25).toFixed(1)), Number((currentQ.maxMarks * 0.5).toFixed(1))],
           acceptedAlternatives: ["Standard academic definition or paraphrase"],
         },
         {
           id: "C2",
-          description: `Explanation / justification for ${currentQ.number}`,
+          description: "",
           maxMarks: Number((currentQ.maxMarks * 0.5).toFixed(1)),
           allowedPartialCredits: [0, Number((currentQ.maxMarks * 0.25).toFixed(1)), Number((currentQ.maxMarks * 0.5).toFixed(1))],
           acceptedAlternatives: ["Grounded technical justification"],
@@ -92,6 +95,9 @@ function RubricContent() {
   );
   const qMaxMarks = Number((currentQ?.maxMarks ?? 0).toFixed(2));
   const isSumValid = currentQ ? Math.abs(criteriaSum - qMaxMarks) < 0.001 : false;
+  const hasValidPrompt = Boolean(currentQ && !isPlaceholderPrompt(currentQ.prompt));
+  const allCriteriaFilled = criteria.length > 0 && criteria.every((c) => c.description.trim().length > 0);
+  const isReadyToApprove = hasValidPrompt && allCriteriaFilled && isSumValid;
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -206,9 +212,22 @@ function RubricContent() {
 
   function handleApproveRubric() {
     if (!currentQ) return;
+    const errorMsg = !hasValidPrompt
+      ? "Please enter the question prompt / topic before approving the marking scheme."
+      : !allCriteriaFilled
+        ? "Please enter a description for every marking criterion before approving."
+        : !isSumValid
+          ? `Criteria sum (${criteriaSum} marks) must exactly equal question maximum (${qMaxMarks} marks) before approving.`
+          : null;
+    if (errorMsg) {
+      setValidationMsg({ ok: false, msg: errorMsg });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     const res = actions.approveRubric(currentQ.id, criteria, modelAnswerText, modelImages);
     if (!res.ok) {
       setValidationMsg({ ok: false, msg: res.error || "Approval failed." });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       setValidationMsg({
         ok: true,
@@ -387,7 +406,7 @@ function RubricContent() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <h2 className="font-['Plus_Jakarta_Sans'] text-xl sm:text-2xl font-semibold text-[color:var(--x-ink,#111827)]">
-                    {currentQ.number} · {currentQ.prompt.trim() && !/^Question\s+\d+$/i.test(currentQ.prompt.trim()) ? currentQ.prompt : "Exam Question"}
+                    {currentQ.number} · {!isPlaceholderPrompt(currentQ.prompt) ? currentQ.prompt : "Exam Question"}
                   </h2>
                   {activeRubric && (
                     <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
@@ -406,8 +425,11 @@ function RubricContent() {
                   <button
                     type="button"
                     onClick={handleApproveRubric}
-                    disabled={!isSumValid}
-                    className="h-9 whitespace-nowrap rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-4 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    className={`h-9 whitespace-nowrap rounded-xl px-4 text-xs font-semibold text-white transition cursor-pointer ${
+                      isReadyToApprove
+                        ? "bg-[color:var(--x-primary600,#4338ca)] hover:bg-indigo-700"
+                        : "bg-indigo-400/80 hover:bg-indigo-500"
+                    }`}
                   >
                     Approve version {activeRubric ? activeRubric.version + 1 : 1}
                   </button>
@@ -422,7 +444,7 @@ function RubricContent() {
                   <div className="relative">
                     <input
                       type="text"
-                      value={/^Question\s+\d+$/i.test(currentQ.prompt.trim()) ? "" : currentQ.prompt}
+                      value={isPlaceholderPrompt(currentQ.prompt) ? "" : currentQ.prompt}
                       onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
                       placeholder="Enter question here..."
                       className="w-full h-10 rounded-xl border border-slate-300 bg-slate-50/40 pl-3.5 pr-9 text-sm text-[color:var(--x-ink,#111827)] placeholder:text-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:outline-none transition"
@@ -632,8 +654,12 @@ function RubricContent() {
                             next[idx].description = e.target.value;
                             setCriteria(next);
                           }}
-                          placeholder="e.g. CPU allocation and process scheduling"
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-[color:var(--x-ink,#111827)] focus:border-indigo-600 focus:outline-none"
+                          placeholder={
+                            idx === 0
+                              ? "Enter criterion description (e.g. Key definition / core principle)..."
+                              : "Enter criterion description (e.g. Explanation / technical justification)..."
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-[color:var(--x-ink,#111827)] placeholder:font-normal placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
                         />
                       </div>
                     </div>
@@ -704,7 +730,7 @@ function RubricContent() {
                   ...criteria,
                   {
                     id: `C${criteria.length + 1}`,
-                    description: `New criterion for ${currentQ.number}`,
+                    description: "",
                     maxMarks: 1,
                     allowedPartialCredits: [0, 1],
                     acceptedAlternatives: [],
@@ -727,8 +753,11 @@ function RubricContent() {
               <button
                 type="button"
                 onClick={handleApproveRubric}
-                disabled={!isSumValid}
-                className="h-12 whitespace-nowrap rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className={`h-12 whitespace-nowrap rounded-xl px-6 text-sm font-semibold text-white transition cursor-pointer ${
+                  isReadyToApprove
+                    ? "bg-[color:var(--x-primary600,#4338ca)] hover:bg-indigo-700"
+                    : "bg-indigo-400/80 hover:bg-indigo-500"
+                }`}
               >
                 Approve version {activeRubric ? activeRubric.version + 1 : 1}
               </button>

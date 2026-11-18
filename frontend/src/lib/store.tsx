@@ -10,6 +10,21 @@ import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricC
 const KEY = "scriptx-clean-state-v5";
 const ACTOR = "Dr. S. Silva";
 
+const BOILERPLATE_CRITERION_RE =
+  /^(Key definition \/ core principle|Primary concept and key definition|Explanation \/ justification|Explanation, evidence, or example|New criterion) for Q\d+$/i;
+
+/** Returns true if a question prompt is empty or still uses an auto-generated "Question N" label. */
+export function isPlaceholderPrompt(prompt?: string | null): boolean {
+  const trimmed = (prompt || "").trim();
+  return !trimmed || /^Question\s+\d+$/i.test(trimmed);
+}
+
+/** Converts legacy auto-generated criterion boilerplate descriptions into empty strings. */
+export function sanitizeCriterionDescription(description?: string | null): string {
+  const raw = description || "";
+  return BOILERPLATE_CRITERION_RE.test(raw.trim()) ? "" : raw;
+}
+
 type Ctx = {
   state: State;
   user: SessionUser | null;
@@ -141,6 +156,20 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         const q = d.assessment.questions.find((x) => x.id === questionId);
         if (!q) {
           result = { ok: false, error: "Question not found." };
+          return;
+        }
+        if (isPlaceholderPrompt(q.prompt)) {
+          result = {
+            ok: false,
+            error: "Please enter the question prompt / topic before approving the marking scheme.",
+          };
+          return;
+        }
+        if (!criteria.length || criteria.some((c) => !c.description?.trim())) {
+          result = {
+            ok: false,
+            error: "Please enter a description for every marking criterion before approving.",
+          };
           return;
         }
         // Validate REQ-12: The system shall reject approval when the criterion maxima do not sum to the question maximum
@@ -708,13 +737,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await clearBlobs().catch(() => undefined);
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
-        if (!s.rubrics) s.rubrics = [];
+        if (!s.rubrics) {
+          s.rubrics = [];
+        } else {
+          s.rubrics = s.rubrics.map((r) =>
+            r.approved
+              ? r
+              : {
+                  ...r,
+                  criteria: (r.criteria || []).map((c) => ({
+                    ...c,
+                    description: sanitizeCriterionDescription(c.description),
+                  })),
+                },
+          );
+        }
         if (!s.assessment.questions || s.assessment.questions.length === 0) {
           s.assessment.questions = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
         } else {
           s.assessment.questions = s.assessment.questions.map((q) => ({
             ...q,
-            prompt: /^Question\s+\d+$/i.test(q.prompt.trim()) ? "" : q.prompt,
+            prompt: isPlaceholderPrompt(q.prompt) ? "" : q.prompt,
           }));
         }
         if (!s.assessment.course || s.assessment.course === "CS2042 Operating Systems") {
