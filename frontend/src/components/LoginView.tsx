@@ -131,7 +131,7 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
               </button>
               <button
                 type="button"
-                onClick={() => fillDemo("admin", "Admin@123", "TEACHER")}
+                onClick={() => fillDemo("admin", "Admin@123", "ADMIN")}
                 className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
               >
                 Admin
@@ -142,29 +142,27 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
           {/* Role Pill Switcher */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Workspace Role</label>
-            <div className="grid grid-cols-2 gap-2 bg-[#f5f6fa] p-1 rounded-xl border border-[#e4e7ef]">
-              <button
-                type="button"
-                onClick={() => setRole("TEACHER")}
-                className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  role === "TEACHER"
-                    ? "bg-white text-[#4338ca] shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Teacher workspace
-              </button>
-              <button
-                type="button"
-                onClick={() => setRole("STUDENT")}
-                className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  role === "STUDENT"
-                    ? "bg-white text-[#4338ca] shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Student workspace
-              </button>
+            <div className="grid grid-cols-3 gap-1.5 bg-[#f5f6fa] p-1 rounded-xl border border-[#e4e7ef]">
+              {(
+                [
+                  { value: "TEACHER", label: "Teacher" },
+                  { value: "STUDENT", label: "Student" },
+                  { value: "ADMIN", label: "Administrator" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setRole(opt.value)}
+                  className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    role === opt.value
+                      ? "bg-white text-[#4338ca] shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -186,7 +184,7 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder={role === "TEACHER" ? "Dr. S. Silva" : "Kasun Jayawardena"}
+                  placeholder={role === "TEACHER" ? "Dr. S. Silva" : role === "ADMIN" ? "Demo Admin1" : "Kasun Jayawardena"}
                   className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
                 />
               </div>
@@ -200,7 +198,7 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder={role === "STUDENT" ? "245001K" : "dr.silva"}
+                placeholder={role === "STUDENT" ? "245001K" : role === "ADMIN" ? "admin" : "dr.silva"}
                 required
                 className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
               />

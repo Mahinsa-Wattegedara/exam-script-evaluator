@@ -180,7 +180,23 @@ export type IdentityMapEntry = {
   studentName?: string;
 };
 
-export type UserRole = "TEACHER" | "STUDENT";
+export type UserRole = "TEACHER" | "STUDENT" | "ADMIN";
+
+export type DemoAccount = {
+  id: string;
+  name: string;
+  identifier: string;
+  role: "Teacher" | "Student" | "Administrator";
+  status: "Active" | "Paused";
+};
+
+export type RuntimeSettings = {
+  maxBudgetUsd: string;
+  estimatedSpendUsd: string;
+  modelProfile: string;
+  retryPolicy: string;
+  retentionDays: number;
+};
 
 export type SessionUser = {
   username: string;

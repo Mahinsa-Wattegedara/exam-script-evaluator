@@ -4,7 +4,7 @@ Authentication & Identity Pydantic v2 Schemas (SRS Section 4.3 & 4.4).
 from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
-UserRole = Literal["TEACHER", "STUDENT"]
+UserRole = Literal["TEACHER", "STUDENT", "ADMIN"]
 
 
 class SessionUserSchema(BaseModel):

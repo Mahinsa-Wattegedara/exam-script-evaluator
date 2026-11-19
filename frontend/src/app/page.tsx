@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
+import { AdminDashboard } from "@/components/AdminDashboard";
 import { StudentDashboard } from "@/components/StudentDashboard";
 import { Badge, fmtTime } from "@/components/ui";
 import { STAGES, orderedImages, scriptStage, scriptStatus } from "@/lib/logic";
@@ -10,6 +11,9 @@ export default function Overview() {
   const { state, user, actions } = useStore();
   const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
 
+  if (user?.role === "ADMIN") {
+    return <AdminDashboard />;
+  }
   if (user?.role === "STUDENT") {
     return <StudentDashboard />;
   }

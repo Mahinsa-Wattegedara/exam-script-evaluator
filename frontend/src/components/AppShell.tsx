@@ -37,6 +37,27 @@ const STUDENT_NAV = [
   },
 ];
 
+const ADMIN_NAV = [
+  {
+    href: "/?tab=dashboard",
+    tab: "dashboard",
+    label: "Dashboard",
+    icon: "M3 12l9-8 9 8M5 10v10h14V10",
+  },
+  {
+    href: "/?tab=accounts",
+    tab: "accounts",
+    label: "Demonstration accounts",
+    icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z",
+  },
+  {
+    href: "/?tab=runtime",
+    tab: "runtime",
+    label: "Runtime and retention",
+    icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4",
+  },
+];
+
 function Icon({ d }: { d: string }) {
   return (
     <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -78,7 +99,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   }
 
   const isTeacher = user.role === "TEACHER";
-  const studentTab = searchParams.get("tab") || "dashboard";
+  const isAdmin = user.role === "ADMIN";
+  const activeTab = searchParams.get("tab") || "dashboard";
   const pendingReviews = state.answers.filter((a) => a.routingStatus === "NEEDS_REVIEW").length;
   const studentRequestsCount = user.studentId
     ? state.reviewRequests.filter((r) => r.studentId === user.studentId).length
@@ -93,11 +115,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         .slice(0, 2)
     : isTeacher
       ? "TR"
-      : "DS";
+      : isAdmin
+        ? "AD"
+        : "DS";
 
-  // Explicit teacher-only routes. Students accessing these will see the restricted banner.
+  // Explicit teacher-only routes. Students and admins accessing these see the restricted banner.
   const TEACHER_ONLY_ROUTES = ["/upload", "/scripts", "/rubric", "/review", "/contract"];
-  const studentOnTeacherRoute =
+  const blockedFromTeacherRoute =
     !isTeacher && TEACHER_ONLY_ROUTES.some((r) => path === r || path.startsWith(`${r}/`));
 
   return (
@@ -131,10 +155,10 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             </div>
             <div className="text-center">
               <div className="text-sm font-semibold text-white leading-tight">
-                {user.displayName || (isTeacher ? "Dr. S. Silva" : "Demo Student1")}
+                {user.displayName || (isTeacher ? "Dr. S. Silva" : isAdmin ? "Demo Admin1" : "Demo Student1")}
               </div>
               <div className="mt-0.5 text-[10px] font-bold tracking-wider text-indigo-300 uppercase">
-                {user.role}
+                {isAdmin ? "ADMINISTRATOR" : user.role}
               </div>
             </div>
           </div>
@@ -174,8 +198,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                   </Link>
                 );
               })
-            : STUDENT_NAV.map((n) => {
-                const active = studentTab === n.tab;
+            : (isAdmin ? ADMIN_NAV : STUDENT_NAV).map((n) => {
+                const active = activeTab === n.tab;
                 return (
                   <Link
                     key={n.href}
@@ -188,7 +212,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                   >
                     <Icon d={n.icon} />
                     <span className="flex-1">{n.label}</span>
-                    {n.tab === "review" && studentRequestsCount > 0 && (
+                    {!isAdmin && n.tab === "review" && studentRequestsCount > 0 && (
                       <span className="rounded-full bg-indigo-300/30 px-2 py-0.5 text-[10px] font-bold text-white">
                         {studentRequestsCount}
                       </span>
@@ -204,45 +228,64 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         {/* FIGMA XEYNERGY TOP BAR */}
         <header className="sticky top-0 z-20 flex h-18 lg:h-20 items-center justify-between border-b border-[#e4e7ef] bg-white px-8 shadow-2xs">
           {/* Dynamic Breadcrumbs */}
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs sm:text-sm font-medium">
-            <Link
-              href="/"
-              className="text-[#4b5563] hover:text-[#4338ca] transition font-semibold"
-            >
-              Assessments
-            </Link>
-            <span className="text-slate-300">›</span>
-            {path === "/" ? (
-              <span className="font-semibold text-[#111827]">Overview</span>
-            ) : path === "/upload" ? (
-              <span className="font-semibold text-[#111827]">Upload scripts</span>
-            ) : path === "/scripts" ? (
-              <span className="font-semibold text-[#111827]">Scripts queue</span>
-            ) : path.startsWith("/scripts/") ? (
-              <>
-                <Link
-                  href="/scripts"
-                  className="text-[#4b5563] hover:text-[#4338ca] transition"
-                >
-                  Scripts
-                </Link>
-                <span className="text-slate-300">›</span>
-                <span className="font-semibold text-[#111827]">
-                  {state.scripts.find((s) => s.id === path.split("/")[2])?.pseudonymousCode || "Workspace"}
-                </span>
-              </>
-            ) : path === "/rubric" ? (
-              <span className="font-semibold text-[#111827]">Marking scheme</span>
-            ) : path === "/review" ? (
-              <span className="font-semibold text-[#111827]">Review queue</span>
-            ) : path === "/contract" ? (
-              <span className="font-semibold text-[#111827]">Export contract</span>
-            ) : (
+          {isAdmin ? (
+            <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+              <Link
+                href="/?tab=dashboard"
+                className="text-[#4b5563] hover:text-[#4338ca] transition font-semibold"
+              >
+                Dashboard
+              </Link>
+              <span className="text-slate-300">›</span>
               <span className="font-semibold text-[#111827]">
-                {isTeacher ? "Teacher workspace" : "Student portal"}
+                {activeTab === "accounts"
+                  ? "Demonstration accounts"
+                  : activeTab === "runtime"
+                    ? "Runtime settings"
+                    : "Overview"}
               </span>
-            )}
-          </nav>
+            </nav>
+          ) : (
+            <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+              <Link
+                href="/"
+                className="text-[#4b5563] hover:text-[#4338ca] transition font-semibold"
+              >
+                Assessments
+              </Link>
+              <span className="text-slate-300">›</span>
+              {path === "/" ? (
+                <span className="font-semibold text-[#111827]">Overview</span>
+              ) : path === "/upload" ? (
+                <span className="font-semibold text-[#111827]">Upload scripts</span>
+              ) : path === "/scripts" ? (
+                <span className="font-semibold text-[#111827]">Scripts queue</span>
+              ) : path.startsWith("/scripts/") ? (
+                <>
+                  <Link
+                    href="/scripts"
+                    className="text-[#4b5563] hover:text-[#4338ca] transition"
+                  >
+                    Scripts
+                  </Link>
+                  <span className="text-slate-300">›</span>
+                  <span className="font-semibold text-[#111827]">
+                    {state.scripts.find((s) => s.id === path.split("/")[2])?.pseudonymousCode || "Workspace"}
+                  </span>
+                </>
+              ) : path === "/rubric" ? (
+                <span className="font-semibold text-[#111827]">Marking scheme</span>
+              ) : path === "/review" ? (
+                <span className="font-semibold text-[#111827]">Review queue</span>
+              ) : path === "/contract" ? (
+                <span className="font-semibold text-[#111827]">Export contract</span>
+              ) : (
+                <span className="font-semibold text-[#111827]">
+                  {isTeacher ? "Teacher workspace" : "Student portal"}
+                </span>
+              )}
+            </nav>
+          )}
 
           {/* Search, Notifications & Workspace Indicator */}
           <div className="flex items-center gap-3">
@@ -267,7 +310,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
             {/* Role Label */}
             <span className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-[#4338ca]">
-              {isTeacher ? "Teacher workspace" : "Student workspace"}
+              {isTeacher ? "Teacher workspace" : isAdmin ? "Administrator workspace" : "Student workspace"}
             </span>
 
             {/* Top Right Log out button */}
@@ -290,13 +333,15 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
         {/* PAGE CONTENT */}
         <main className="flex-1 p-6 lg:p-8">
-          {studentOnTeacherRoute ? (
+          {blockedFromTeacherRoute ? (
             <div className="mx-auto max-w-md space-y-4 py-12">
               <Alert tone="red" title="Access restricted">
-                This page is available only to teachers.
+                {isAdmin
+                  ? "Project administration does not grant access to course scripts, marking decisions, or student marks."
+                  : "This page is available only to teachers."}
               </Alert>
               <Button variant="primary" onClick={() => router.push("/")}>
-                Back to Student Dashboard
+                {isAdmin ? "Back to Administrator Dashboard" : "Back to Student Dashboard"}
               </Button>
             </div>
           ) : (

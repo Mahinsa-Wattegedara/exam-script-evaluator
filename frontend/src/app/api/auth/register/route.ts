@@ -19,7 +19,8 @@ export async function POST(req: Request) {
 
     const username = body.username?.trim() ?? "";
     const password = body.password ?? "";
-    const role: UserRole = body.role === "STUDENT" ? "STUDENT" : "TEACHER";
+    const role: UserRole =
+      body.role === "STUDENT" ? "STUDENT" : body.role === "ADMIN" ? "ADMIN" : "TEACHER";
     const email = body.email?.trim() || `${username.toLowerCase()}@uom.lk`;
     const displayName = body.displayName?.trim() || username;
 

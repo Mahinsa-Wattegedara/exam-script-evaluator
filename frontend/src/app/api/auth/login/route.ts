@@ -15,7 +15,8 @@ export async function POST(req: Request) {
 
     const username = body.username?.trim() ?? "";
     const password = body.password ?? "";
-    const role: UserRole = body.role === "STUDENT" ? "STUDENT" : "TEACHER";
+    const role: UserRole =
+      body.role === "STUDENT" ? "STUDENT" : body.role === "ADMIN" ? "ADMIN" : "TEACHER";
 
     if (!username || !password) {
       return NextResponse.json(
