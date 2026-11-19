@@ -143,6 +143,21 @@ export function unresolvedFlags(v?: TranscriptVersion) {
   return v ? v.flags.filter((f) => !f.resolved) : [];
 }
 
+/**
+ * NFR-04 Untrusted answer content guardrail:
+ * Wraps approved transcript spans inside fixed <student_answer_transcript> XML delimiters
+ * and strips any attempt by handwritten text to close or forge the delimiter tag.
+ */
+export function wrapInStudentAnswerDelimiters(v: TranscriptVersion): string {
+  const safeLines = v.spans.map((s, idx) => {
+    const lineMatch = s.id?.match(/L(\d+)/i);
+    const lineNum = lineMatch ? lineMatch[1] : (s.line ?? idx + 1);
+    const sanitized = s.text.replace(/<\/?student_answer_transcript>/gi, "[ESCAPED_DELIMITER]");
+    return `[L${lineNum}] ${sanitized}`;
+  });
+  return `<student_answer_transcript>\n${safeLines.join("\n")}\n</student_answer_transcript>`;
+}
+
 export function buildAnswerReady(state: State, a: AnswerRecord): AnswerReady | null {
   const v = latestApproved(a);
   const script = state.scripts.find((s) => s.id === a.scriptId);
@@ -156,6 +171,7 @@ export function buildAnswerReady(state: State, a: AnswerRecord): AnswerReady | n
     question_id: a.questionId,
     transcript_version: v.version,
     approved_text: versionText(v),
+    delimited_text: wrapInStudentAnswerDelimiters(v),
     evidence: v.spans.map((s) => {
       const r = state.regions.find((x) => x.id === s.regionId);
       const img = script.images.find((i) => i.id === r?.imageId);

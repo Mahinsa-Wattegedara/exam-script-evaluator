@@ -267,6 +267,7 @@ export type AnswerReady = {
   question_id: string;
   transcript_version: number;
   approved_text: string;
+  delimited_text: string;
   evidence: { span_id: string; text: string; page_number: number; region_id: string; bbox: Rect }[];
   approval_status: ApprovalStatus;
   routing_status: RoutingStatus;

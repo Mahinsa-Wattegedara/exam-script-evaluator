@@ -50,13 +50,27 @@ export default function ContractPage() {
           <Card>
             <CardHeader
               title="AnswerReady JSON (Module 1 → Module 2)"
-              right={readyPayload ? <Badge tone="green">Ready</Badge> : <Badge tone="amber">Pending approval</Badge>}
+              sub="Includes NFR-04 <student_answer_transcript> delimited input for prompt-injection isolation"
+              right={readyPayload ? <Badge tone="green">Ready · Delimited</Badge> : <Badge tone="amber">Pending approval</Badge>}
             />
-            <div className="p-5">
+            <div className="p-5 space-y-4">
               {readyPayload ? (
-                <pre className="max-h-[360px] overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs text-emerald-300">
-                  {JSON.stringify(readyPayload, null, 2)}
-                </pre>
+                <>
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3.5 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-indigo-950">
+                        NFR-04 Delimited Model Input (Untrusted Answer Guardrail)
+                      </span>
+                      <Badge tone="indigo">XML Delimited</Badge>
+                    </div>
+                    <pre className="overflow-x-auto rounded bg-slate-900 p-3 font-mono text-xs text-amber-200 whitespace-pre-wrap">
+                      {readyPayload.delimited_text}
+                    </pre>
+                  </div>
+                  <pre className="max-h-[360px] overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs text-emerald-300">
+                    {JSON.stringify(readyPayload, null, 2)}
+                  </pre>
+                </>
               ) : (
                 <div className="text-xs text-slate-500">Approve the transcript in Review to generate the AnswerReady record.</div>
               )}
