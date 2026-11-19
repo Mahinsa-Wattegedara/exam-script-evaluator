@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  --x-sidebar: #14123b;
+  --x-primary700: #3730a3;
+  --x-primary600: #4338ca;
+  --x-primary100: #e0e3ff;
+  --x-primary50: #f0f1ff;
+  --x-surface: #ffffff;
+  --x-bg: #f5f6fa;
+  --x-border: #e4e7ef;
+  --x-ink: #111827;
+  --x-secondary: #4b5563;
+  --x-muted: #6b7280;
+  --x-warningTint: #fef3c7;
+  --x-warning: #d97706;
+  --x-dangerTint: #fee2e2;
+  --x-danger: #dc2626;
+  --x-Moderatortint: #d1fae5;
+  --x-Teachertint: #ede9fe;
+  --x-Teacher: #7c3aed;
+  --x-Atint: #dbeafe;
+  --x-Btint: #ffedd5;
+}
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+}
+
+html,
+body {
+  background: #f4f6fb;
+  color: #0f172a;
+}
+
+/* visible keyboard focus for all interactive elements (NFR-09) */
+:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: #fff;
+  color: #334155;
+  line-height: 18px;
+}
+
+.checker {
+  background-image: linear-gradient(45deg, #e2e8f0 25%, transparent 25%), linear-gradient(-45deg, #e2e8f0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e2e8f0 75%), linear-gradient(-45deg, transparent 75%, #e2e8f0 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
