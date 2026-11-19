@@ -10,6 +10,7 @@ import { useStore } from "@/lib/store";
 export default function Overview() {
   const { state, user, actions } = useStore();
   const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
+  const [releaseStudentId, setReleaseStudentId] = useState("245001K");
 
   if (user?.role === "ADMIN") {
     return <AdminDashboard />;
@@ -153,7 +154,23 @@ export default function Overview() {
             Object Oriented Programming · Level 2 Semester 1 · 2026
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-[color:var(--x-secondary,#4b5563)]">
+            <span className="font-medium whitespace-nowrap">Student id</span>
+            <input
+              type="text"
+              value={releaseStudentId}
+              onChange={(e) => setReleaseStudentId(e.target.value)}
+              className="h-12 w-32 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => actions.releaseResult(releaseStudentId)}
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+          >
+            Release
+          </button>
           <Link
             href="/upload"
             className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"

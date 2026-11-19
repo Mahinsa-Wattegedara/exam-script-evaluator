@@ -688,6 +688,39 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           `Student ${studentId} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
         );
       }),
+
+    releaseResult: (studentId: string) =>
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const q = d.assessment.questions[0];
+        if (!q) return;
+        if (!d.studentResults) d.studentResults = {};
+        d.studentResults[id] = [
+          {
+            questionId: q.id,
+            questionNumber: q.number,
+            questionPrompt: q.prompt,
+            maxMarks: q.maxMarks,
+            awardedMarks: 4,
+            resultVersion: 1,
+            releasedAt: nowIso(),
+            transcriptVersion: 1,
+            approvedTranscript: "",
+            feedbackText: "Released mark for this question.",
+            criteria: [
+              {
+                criterionId: "C1",
+                description: "Core point",
+                awarded: 4,
+                maxMark: 5,
+                status: "COVERED",
+              },
+            ],
+          },
+        ];
+        audit(d, "RELEASE", `Released Q1 to student ${id}`);
+      }),
   };
 }
 
