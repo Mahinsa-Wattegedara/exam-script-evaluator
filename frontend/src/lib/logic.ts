@@ -69,6 +69,43 @@ function isBlank(spans: TextSpan[]): boolean {
   return text.length === 0;
 }
 
+const PROMPT_INJECTION_RULES: { pattern: RegExp; label: string }[] = [
+  {
+    pattern:
+      /\b(?:ignore|disregard|forget|bypass|override)\s+(?:all\s+|any\s+|previous\s+|prior\s+|above\s+|the\s+)*(?:instructions?|prompts?|rubrics?|marking\s+schemes?|criteria|rules?)\b/i,
+    label: "Instruction / rubric override attempt",
+  },
+  {
+    pattern:
+      /\b(?:award|give|assign|grant|output|return|set)\s+(?:me\s+|this\s+answer\s+)*(?:full|maximum|max|100\s*%|all|\d+\s*\/\s*\d+)\s*(?:marks?|scores?|points?|grades?)\b/i,
+    label: "Goal hijack / score manipulation directive",
+  },
+  {
+    pattern:
+      /(?:\bsystem\s*(?:prompt|override|instruction|message)\b|\bdeveloper\s+mode\b|\bjailbreak\b|\byou\s+are\s+now\s+(?:an?\s+)?(?:evaluator|moderator|grader|assistant)\b|\bact\s+as\s+(?:the\s+)?(?:evaluator|moderator|teacher)\b)/i,
+    label: "System / agent role impersonation",
+  },
+  {
+    pattern:
+      /(?:<\/?student_answer_transcript>|<\|\s*(?:im_start|im_end|system|endoftext)\s*\|>|```\s*system)/i,
+    label: "Delimiter / context escape sequence",
+  },
+];
+
+/**
+ * OWASP Agentic Top 10 (ASI01: Agent Goal Hijack) & NFR-04 prompt-carrier detector.
+ * Scans untrusted student transcript text for adversarial instruction patterns.
+ */
+export function detectPromptInjection(text: string): string | null {
+  for (const rule of PROMPT_INJECTION_RULES) {
+    const match = text.match(rule.pattern);
+    if (match) {
+      return `${rule.label} ("${match[0].trim()}")`;
+    }
+  }
+  return null;
+}
+
 /** Runs (mock) extraction for an answer and returns version 1 plus blank detection. */
 export function extractAnswer(
   regions: AnswerRegion[],
@@ -98,6 +135,16 @@ export function extractAnswer(
             type: "UNCLEAR_CHAR",
             spanId: id,
             message: `Low OCR confidence (${confLabel}) for "${text}" on page ${img?.pageNumber}.`,
+            resolved: false,
+          });
+        }
+        const inj = detectPromptInjection(text);
+        if (inj) {
+          flags.push({
+            id: uid("flag"),
+            type: "PROMPT_INJECTION",
+            spanId: id,
+            message: `OWASP ASI01 / NFR-04 Alert (Line ${line}): ${inj}. Isolated inside <student_answer_transcript> delimiters — verify or route to manual marking.`,
             resolved: false,
           });
         }

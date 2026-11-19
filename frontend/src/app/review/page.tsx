@@ -37,6 +37,7 @@ export function ReviewQueueInner() {
   const [newVerModal, setNewVerModal] = useState<boolean>(false);
   const [newVerReason, setNewVerReason] = useState<string>("Corrected OCR transcription text.");
   const [decisionSuccess, setDecisionSuccess] = useState<string | null>(null);
+  const [securityBlockError, setSecurityBlockError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedAnswerId || dismissedParam) return;
@@ -650,6 +651,16 @@ export function ReviewQueueInner() {
                     <button
                       type="button"
                       onClick={() => {
+                        const hasOpenInjection = unresolvedFlags(curVersion).some(
+                          (f) => f.type === "PROMPT_INJECTION",
+                        );
+                        if (hasOpenInjection) {
+                          setSecurityBlockError(
+                            "OWASP ASI01 / NFR-04 Guardrail: An unresolved prompt-injection attempt is flagged on this transcript. Please confirm XML delimiter isolation on the flag below or route to manual marking before approving.",
+                          );
+                          return;
+                        }
+                        setSecurityBlockError(null);
                         actions.approve(currentAnswer.id);
                         setDecisionSuccess(`Approved transcript for ${currentQuestion?.number || "Question"}!`);
                         setTimeout(() => {
@@ -673,27 +684,77 @@ export function ReviewQueueInner() {
               </div>
             </div>
 
+            {securityBlockError && (
+              <Alert tone="red" title="OWASP ASI01 · Agent Goal Hijack Guardrail">
+                {securityBlockError}
+              </Alert>
+            )}
+
             {/* Flags List if any */}
             {curVersion && unresolvedFlags(curVersion).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-slate-100">
-                <span className="text-xs font-semibold text-amber-800">Unresolved Extraction Flags:</span>
+                <span className="text-xs font-semibold text-amber-800">Unresolved Extraction &amp; Security Flags:</span>
                 <div className="space-y-2">
-                  {unresolvedFlags(curVersion).map((f) => (
-                    <div key={f.id} className="flex items-center justify-between rounded-xl bg-amber-50 p-3 border border-amber-200">
-                      <div className="flex items-center gap-2">
-                        <span className="size-2 rounded-full bg-amber-500" />
-                        <span className="font-mono text-xs font-bold text-amber-900">{f.type}:</span>
-                        <span className="text-xs text-amber-800">{f.message}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => actions.resolveFlag(currentAnswer.id, f.id, "Teacher verified")}
-                        className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-amber-800 border border-amber-300 hover:bg-amber-100 cursor-pointer"
+                  {unresolvedFlags(curVersion).map((f) => {
+                    const isInjection = f.type === "PROMPT_INJECTION";
+                    return (
+                      <div
+                        key={f.id}
+                        className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl p-3 border ${
+                          isInjection
+                            ? "bg-rose-50 border-rose-300"
+                            : "bg-amber-50 border-amber-200"
+                        }`}
                       >
-                        Resolve flag
-                      </button>
-                    </div>
-                  ))}
+                        <div className="flex items-start sm:items-center gap-2">
+                          <span
+                            className={`mt-1 sm:mt-0 size-2 shrink-0 rounded-full ${
+                              isInjection ? "bg-rose-600" : "bg-amber-500"
+                            }`}
+                          />
+                          {isInjection && (
+                            <span className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shrink-0">
+                              OWASP ASI01
+                            </span>
+                          )}
+                          <span
+                            className={`font-mono text-xs font-bold shrink-0 ${
+                              isInjection ? "text-rose-900" : "text-amber-900"
+                            }`}
+                          >
+                            {f.type}:
+                          </span>
+                          <span
+                            className={`text-xs ${
+                              isInjection ? "text-rose-800 font-medium" : "text-amber-800"
+                            }`}
+                          >
+                            {f.message}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSecurityBlockError(null);
+                            actions.resolveFlag(
+                              currentAnswer.id,
+                              f.id,
+                              isInjection
+                                ? "Teacher verified: isolated inside <student_answer_transcript> XML delimiters (NFR-04)"
+                                : "Teacher verified",
+                            );
+                          }}
+                          className={`rounded-lg bg-white px-3 py-1 text-xs font-semibold border transition cursor-pointer shrink-0 ${
+                            isInjection
+                              ? "text-rose-800 border-rose-300 hover:bg-rose-100"
+                              : "text-amber-800 border-amber-300 hover:bg-amber-100"
+                          }`}
+                        >
+                          {isInjection ? "Confirm isolated in XML delimiters" : "Resolve flag"}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

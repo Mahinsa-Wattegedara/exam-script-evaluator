@@ -3,7 +3,7 @@
 // (localStorage + IndexedDB for uploaded files). No backend calls are made.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
-import { activeVersion, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
+import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
 import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
 
@@ -480,6 +480,36 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           const existing = d.answers.find((a) => a.scriptId === scriptId && a.questionId === res.questionId);
           if (existing && existing.versions.some((v) => v.approvalStatus === "APPROVED")) continue;
           if (existing) d.answers = d.answers.filter((a) => a !== existing);
+
+          const mergedFlags = res.flags.map((f) => ({
+            id: uid("flag"),
+            type: f.type,
+            message: f.message,
+            spanId: f.spanId,
+            resolved: false,
+          }));
+
+          for (const sp of res.spans) {
+            const inj = detectPromptInjection(sp.text);
+            if (inj && !mergedFlags.some((f) => f.type === "PROMPT_INJECTION" && f.spanId === sp.id)) {
+              mergedFlags.push({
+                id: uid("flag"),
+                type: "PROMPT_INJECTION",
+                spanId: sp.id,
+                message: `OWASP ASI01 / NFR-04 Alert (Line ${sp.lineNumber}): ${inj}. Isolated inside <student_answer_transcript> delimiters — verify or route to manual marking.`,
+                resolved: false,
+              });
+            }
+          }
+
+          if (mergedFlags.some((f) => f.type === "PROMPT_INJECTION")) {
+            audit(
+              d,
+              "SECURITY_ASI01",
+              `${s.pseudonymousCode} ${qnum(d, res.questionId)}: OWASP ASI01 prompt-injection carrier flagged during extraction`,
+            );
+          }
+
           d.answers.push({
             id: existing?.id ?? uid("ans"),
             scriptId,
@@ -505,13 +535,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
                 ocrEngine: model,
                 approvalStatus: "PENDING",
                 createdAt: nowIso(),
-                flags: res.flags.map((f) => ({
-                  id: uid("flag"),
-                  type: f.type,
-                  message: f.message,
-                  spanId: f.spanId,
-                  resolved: false,
-                })),
+                flags: mergedFlags,
               },
             ],
           });
@@ -566,10 +590,14 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       mutate((d) => {
         const a = answerById(d, answerId);
         a.routingStatus = "MANUAL_MARKING";
-        activeVersion(a)?.flags.filter((f) => f.type === "UNSUPPORTED_CONTENT" || f.type === "EXTRACTION_FAILED").forEach((f) => {
-          f.resolved = true;
-          f.resolution = reason;
-        });
+        activeVersion(a)
+          ?.flags.filter(
+            (f) => f.type === "UNSUPPORTED_CONTENT" || f.type === "EXTRACTION_FAILED" || f.type === "PROMPT_INJECTION",
+          )
+          .forEach((f) => {
+            f.resolved = true;
+            f.resolution = reason;
+          });
         audit(d, "MANUAL", `${code(d, a.scriptId)} ${qnum(d, a.questionId)} routed to manual marking: ${reason}`);
       }),
 

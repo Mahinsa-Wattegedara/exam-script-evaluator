@@ -104,10 +104,12 @@ export type AnswerRegion = {
 
 export type FlagType =
   | "UNCLEAR_CHAR"
+  | "LOW_CONFIDENCE"
   | "MISSING_PAGE"
   | "UNSUPPORTED_CONTENT"
   | "BLANK_ANSWER"
-  | "EXTRACTION_FAILED";
+  | "EXTRACTION_FAILED"
+  | "PROMPT_INJECTION";
 
 export type ReviewFlag = {
   id: string;

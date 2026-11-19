@@ -40,6 +40,7 @@ class AnswerReadySchema(BaseModel):
     question_id: str
     transcript_version: int = Field(..., ge=1)
     approved_text: str
+    delimited_text: Optional[str] = None
     evidence: list[EvidenceSpanSchema]
     approval_status: Literal["PENDING", "APPROVED", "SUPERSEDED"]
     routing_status: Literal[
@@ -96,6 +97,7 @@ class ExtractedFlagSchema(BaseModel):
         "DIAGRAM_DETECTED",
         "BLANK_ANSWER",
         "UNSUPPORTED_CONTENT",
+        "PROMPT_INJECTION",
     ]
     message: str
     spanId: Optional[str] = None

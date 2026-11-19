@@ -45,10 +45,12 @@ export function MaskBadge({ s }: { s: MaskStatus }) {
 
 export const flagMeta: Record<FlagType, { tone: Tone; label: string }> = {
   UNCLEAR_CHAR: { tone: "amber", label: "Unclear characters" },
+  LOW_CONFIDENCE: { tone: "amber", label: "Low OCR confidence" },
   MISSING_PAGE: { tone: "red", label: "Missing page / region" },
   UNSUPPORTED_CONTENT: { tone: "violet", label: "Unsupported content" },
   BLANK_ANSWER: { tone: "blue", label: "Blank answer detected" },
   EXTRACTION_FAILED: { tone: "red", label: "Extraction failed" },
+  PROMPT_INJECTION: { tone: "red", label: "Prompt injection (OWASP ASI01)" },
 };
 
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
