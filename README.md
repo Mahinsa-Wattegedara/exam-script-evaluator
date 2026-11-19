@@ -1,9 +1,22 @@
 # Exam Script Evaluator
 
 > **AI-Assisted Exam Script Evaluation Platform**  
-> University of Moratuwa (UOM) — Software Engineering Project
+> University of Moratuwa (UOM) — Software Engineering Project, developed for Xeynergy.
 
 Exam Script Evaluator is an enterprise platform designed for evaluating photographed and scanned handwritten exam answer scripts using evidence-based AI transcription, human moderation, and teacher supervision.
+
+---
+
+## How a script is marked
+
+1. **Scheme.** The teacher defines questions, marks, and criteria, and uploads a model answer.
+2. **Upload.** The teacher adds each script as page images and masks the student identity header before any model sees the page.
+3. **Transcripts.** Handwritten answers are extracted, mapped to questions, and approved by the teacher. Approval produces a versioned `AnswerReady` contract.
+4. **Marking.** Evaluator A and Evaluator B score the approved transcript independently against the same rubric.
+5. **Review.** When the two marks disagree, the answer enters a review queue. The teacher sets the final mark.
+6. **Release.** The student sees only their own released mark, criterion-level feedback, and a way to request a review. A review request does not change the mark.
+
+Student identity stays separate from the text sent to the models. Downstream marking uses a pseudonymous script code.
 
 ---
 
@@ -82,9 +95,12 @@ Pre-configured branches have been created for each module so you can start immed
 
 ---
 
+## Core Security & Verification Features
+
 * **Teacher-Only Intake**: Only teachers upload scripts, mask student headers, map answer regions, and approve transcripts. Students can access only released results and dispute mechanisms.
 * **Identity Header Masking**: Interactive bounding box masking (`react-image-crop`) to guarantee student anonymity before AI processing (SRS NFR-02).
 * **Handwritten / Structured Answer OCR**: Region mapping, multi-page continuation joining, confidence scoring, and side-by-side transcript review.
+* **Prompt Injection & OWASP ASI01 Defense**: Regex and rule-based prompt-injection scanning with isolated `<student_answer_transcript>` XML delimiters and human-in-the-loop review gating (SRS NFR-04).
 * **Marking Scheme & Rubrics**: Teacher model answer upload, multi-criterion analytic rubrics with strict sum validation, and immutable rubric versioning.
 * **Immutable Contract Generation**: Final teacher approval generates the strictly versioned `AnswerReady` contract for downstream evaluation.
 
@@ -109,6 +125,8 @@ This script automatically:
 
 ### Manual Setup Instructions
 
+#### 1. Backend Setup (FastAPI)
+
 1. Navigate to the backend directory:
    ```bash
    cd backend
@@ -117,7 +135,7 @@ This script automatically:
    ```bash
    # On Windows:
    python -m venv .venv
-   .venv\Scripts\activate
+   .\.venv\Scripts\Activate.ps1
 
    # On macOS / Linux:
    python3 -m venv .venv
@@ -132,7 +150,9 @@ This script automatically:
    cp .env.example .env
    # Add your GEMINI_API_KEY if testing Gemini Vision extraction
    ```
-5. Start the FastAPI server:
+5. Apply database migration:
+   Apply `backend/supabase/migrations/001_fixed_er_complete_schema.sql` to your Supabase project.
+6. Start the FastAPI server:
    ```bash
    uvicorn app.main:app --reload --port 8000
    ```
@@ -141,7 +161,7 @@ This script automatically:
 
 ---
 
-### 2. Frontend Setup (Next.js)
+#### 2. Frontend Setup (Next.js)
 
 1. Open a new terminal and navigate to the frontend directory:
    ```bash
@@ -175,4 +195,4 @@ This script automatically:
 
 ## License & Academic Disclaimer
 
-Developed for Xeynergy 
+Developed for Xeynergy.
