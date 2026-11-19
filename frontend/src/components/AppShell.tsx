@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { LandingPage } from "@/components/LandingPage";
 import { LoginView } from "@/components/LoginView";
 import { Alert, Button } from "@/components/ui";
@@ -71,6 +71,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { state, user, logout } = useStore();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [readSig, setReadSig] = useState("");
+  const notifRef = useRef<HTMLDivElement>(null);
 
   // Rules of Hooks: All hooks must run unconditionally in every render
   useEffect(() => {
@@ -78,6 +81,125 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       router.replace("/");
     }
   }, [user, path, router]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setNotifOpen(false);
+    }
+    window.addEventListener("mousedown", handleOutside);
+    window.addEventListener("keydown", handleEsc);
+    return () => {
+      window.removeEventListener("mousedown", handleOutside);
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [notifOpen]);
+
+  const notifications = useMemo(() => {
+    if (!user) return [];
+    const items: { id: string; title: string; detail: string; href: string; dot: string }[] = [];
+
+    if (user.role === "TEACHER") {
+      const pendingAns = state.answers.filter((a) => a.routingStatus === "NEEDS_REVIEW").length;
+      const pendingMaskScripts = state.scripts.filter((s) => s.images.some((im) => im.maskStatus === "PENDING")).length;
+      const openReq = state.reviewRequests.filter((r) => r.status === "PENDING_TEACHER_REVIEW").length;
+
+      if (pendingAns > 0) {
+        items.push({
+          id: `t-review-${pendingAns}`,
+          title: `${pendingAns} transcript${pendingAns > 1 ? "s" : ""} awaiting review`,
+          detail: "Verify OCR spans or route unsupported scripts to manual marking.",
+          href: "/review",
+          dot: "bg-amber-500",
+        });
+      }
+      if (pendingMaskScripts > 0) {
+        items.push({
+          id: `t-mask-${pendingMaskScripts}`,
+          title: `${pendingMaskScripts} script${pendingMaskScripts > 1 ? "s" : ""} need header masking`,
+          detail: "Redact student headers before mapping questions.",
+          href: "/scripts",
+          dot: "bg-indigo-500",
+        });
+      }
+      if (openReq > 0) {
+        items.push({
+          id: `t-req-${openReq}`,
+          title: `${openReq} student review request${openReq > 1 ? "s" : ""}`,
+          detail: "Check flagged disputes submitted from the student portal.",
+          href: "/review",
+          dot: "bg-amber-500",
+        });
+      }
+      for (const ev of state.audit.slice(0, 3)) {
+        items.push({
+          id: `t-audit-${ev.id}`,
+          title: ev.action,
+          detail: ev.detail,
+          href: ev.action === "APPROVE_RUBRIC" || ev.action === "UPLOAD_MODEL_ANSWER_IMAGE" ? "/rubric" : "/scripts",
+          dot: "bg-emerald-500",
+        });
+      }
+    } else if (user.role === "STUDENT") {
+      const sid = user.studentId ?? user.username ?? "";
+      const myResCount = sid ? (state.studentResults[sid]?.length ?? 0) : 0;
+      const myReqs = sid ? state.reviewRequests.filter((r) => r.studentId === sid) : [];
+      if (myResCount > 0) {
+        items.push({
+          id: `s-res-${myResCount}`,
+          title: `${myResCount} released question result${myResCount > 1 ? "s" : ""}`,
+          detail: "View criterion marks, feedback, and matched evidence.",
+          href: "/?tab=marks",
+          dot: "bg-emerald-500",
+        });
+      }
+      if (myReqs.length > 0) {
+        items.push({
+          id: `s-req-${myReqs.length}`,
+          title: `${myReqs.length} review request${myReqs.length > 1 ? "s" : ""} recorded`,
+          detail: "Track resolution notes from your course instructor.",
+          href: "/?tab=review",
+          dot: "bg-indigo-500",
+        });
+      }
+    } else if (user.role === "ADMIN") {
+      items.push(
+        {
+          id: "a-runtime",
+          title: "Runtime budget monitor",
+          detail: "Current batch estimate USD 3.20 / 5.00 · 90-day retention active.",
+          href: "/?tab=runtime",
+          dot: "bg-indigo-500",
+        },
+        {
+          id: "a-accounts",
+          title: "Demonstration accounts active",
+          detail: "Manage teacher, student, and administrator demo identities.",
+          href: "/?tab=accounts",
+          dot: "bg-emerald-500",
+        },
+      );
+      for (const ev of state.audit.slice(0, 2)) {
+        items.push({
+          id: `a-audit-${ev.id}`,
+          title: ev.action,
+          detail: ev.detail,
+          href: "/?tab=accounts",
+          dot: "bg-slate-400",
+        });
+      }
+    }
+
+    return items;
+  }, [user, state.answers, state.scripts, state.reviewRequests, state.studentResults, state.audit]);
+
+  const notifSig = notifications.map((n) => n.id).join("|");
+  const hasUnread = notifications.length > 0 && readSig !== notifSig;
 
   if (!user) {
     if (path === "/login" || searchParams.get("view") === "login") {
@@ -301,11 +423,82 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               </svg>
             </div>
 
-            {/* Bell Icon */}
-            <div className="flex size-10 items-center justify-center rounded-xl border border-[#e4e7ef] text-slate-500 hover:bg-slate-50 cursor-pointer transition">
-              <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
+            {/* Bell Icon & Notification Dropdown */}
+            <div ref={notifRef} className="relative">
+              <button
+                type="button"
+                aria-label="Notifications"
+                aria-expanded={notifOpen}
+                onClick={() => setNotifOpen((o) => !o)}
+                className={`relative flex size-10 items-center justify-center rounded-xl border transition cursor-pointer ${
+                  notifOpen
+                    ? "border-[#4338ca] bg-indigo-50 text-[#4338ca]"
+                    : "border-[#e4e7ef] bg-white text-slate-500 hover:bg-slate-50"
+                }`}
+                title="Notifications"
+              >
+                <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                {hasUnread && (
+                  <span className="absolute right-2 top-2 size-2 rounded-full bg-[#4338ca] ring-2 ring-white" />
+                )}
+              </button>
+
+              {notifOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-[#e4e7ef] bg-white shadow-xl z-40 overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-[#e4e7ef] px-4 py-3 bg-[#f9fafb]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[#111827]">Notifications</span>
+                      {hasUnread && (
+                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-[#4338ca]">
+                          {notifications.length}
+                        </span>
+                      )}
+                    </div>
+                    {notifications.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setReadSig(notifSig)}
+                        className="text-[11px] font-semibold text-[#4338ca] hover:underline cursor-pointer"
+                      >
+                        Mark all as read
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-xs text-slate-500">
+                        You are all caught up. No new notifications.
+                      </div>
+                    ) : (
+                      notifications.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setNotifOpen(false);
+                            setReadSig(notifSig);
+                            router.push(item.href);
+                          }}
+                          className="w-full text-left px-4 py-3 hover:bg-slate-50 transition flex items-start gap-3 cursor-pointer"
+                        >
+                          <span className={`mt-1.5 size-2 rounded-full shrink-0 ${item.dot}`} />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-[#111827] truncate">
+                              {item.title}
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-[#4b5563] line-clamp-2 leading-relaxed">
+                              {item.detail}
+                            </p>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Role Label */}
