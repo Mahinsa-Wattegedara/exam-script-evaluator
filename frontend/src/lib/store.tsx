@@ -5,7 +5,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
-import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
+import type { ImportedQuestion } from "./marking-scheme-import";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
 const ACTOR = "Dr. S. Silva";
@@ -51,6 +52,36 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   const qnum = (d: State, qid: string) => d.assessment.questions.find((q) => q.id === qid)?.number ?? qid;
 
   return {
+    updateAssessment: (title: string, course: string) =>
+      mutate((d) => {
+        d.assessment.title = title;
+        d.assessment.course = course;
+      }),
+
+    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean }) => {
+      const state = getState();
+      if (state.scripts.length || state.answers.length || state.rubrics.some((r) => r.approved)) {
+        return { ok: false, error: "This assessment has uploaded student scripts or approved rubrics. Its questions cannot be replaced by an import." };
+      }
+      if (!options?.replaceDrafts && (state.rubrics.length || state.assessment.questions.some((q) => !isPlaceholderPrompt(q.prompt)))) {
+        return { ok: false, error: "Review and confirm replacing the existing question and rubric drafts to import this scheme." };
+      }
+      if (!items.length) return { ok: false, error: "No questions were found to import." };
+      mutate((d) => {
+        d.assessment.questions = items.map((item) => item.question);
+        d.rubrics = items.map((item) => ({
+          version: 1,
+          questionId: item.question.id,
+          criteria: item.criteria,
+          subquestions: item.subquestions,
+          modelAnswerText: item.modelAnswerText,
+          approved: false,
+        }));
+        audit(d, "IMPORT_MARKING_SCHEME", `Imported ${items.length} question drafts${options?.replaceDrafts ? "; replaced previous drafts after confirmation" : ""}`);
+      });
+      return { ok: true };
+    },
+
     reset: async () => {
       localStorage.removeItem(KEY);
       localStorage.removeItem("m1-enterprise-state-v3");
@@ -69,7 +100,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     addQuestion: () =>
       mutate((d) => {
-        const nextIdx = d.assessment.questions.length + 1;
+        const nextIdx = Math.max(0, ...d.assessment.questions.map((q) => Number(q.number.slice(1)) || 0)) + 1;
         d.assessment.questions.push({
           id: `q${nextIdx}`,
           number: `Q${nextIdx}`,
@@ -126,6 +157,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       criteria: RubricCriterion[],
       modelAnswerText?: string,
       modelAnswerImages?: ModelAnswerImage[],
+      subquestions?: RubricSubquestion[],
     ) =>
       mutate((d) => {
         if (!d.rubrics) d.rubrics = [];
@@ -142,6 +174,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         r.criteria = criteria;
         if (modelAnswerText !== undefined) r.modelAnswerText = modelAnswerText;
         if (modelAnswerImages !== undefined) r.modelAnswerImages = modelAnswerImages;
+        if (subquestions !== undefined) r.subquestions = subquestions;
       }),
 
     approveRubric: (
@@ -149,6 +182,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       criteria: RubricCriterion[],
       modelAnswerText?: string,
       modelAnswerImages?: ModelAnswerImage[],
+      subquestions?: RubricSubquestion[],
     ) => {
       let result: { ok: boolean; error?: string } = { ok: false, error: "" };
       mutate((d) => {
@@ -172,6 +206,21 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           };
           return;
         }
+        if (criteria.some((c) => !c.acceptedAlternatives.some((answer) => answer.trim()) ||
+          !c.scoringGuide || c.scoringGuide.length !== c.allowedPartialCredits.length ||
+          new Set(c.scoringGuide.map((entry) => entry.marks)).size !== c.scoringGuide.length ||
+          c.scoringGuide.some((entry) => !c.allowedPartialCredits.includes(entry.marks) || !entry.description.trim()))) {
+          result = { ok: false, error: "Add valid alternative answers and explain every allowed score for each marking point before approval." };
+          return;
+        }
+        if (new Set(criteria.map((c) => c.id)).size !== criteria.length || criteria.some((c) =>
+          !Number.isFinite(c.maxMarks) || c.maxMarks < 0 ||
+          !c.allowedPartialCredits.includes(0) || !c.allowedPartialCredits.includes(c.maxMarks) ||
+          c.allowedPartialCredits.some((mark) => !Number.isFinite(mark) || mark < 0 || mark > c.maxMarks)
+        )) {
+          result = { ok: false, error: "Criterion IDs must be unique and allowed marks must include 0 and the criterion maximum within bounds." };
+          return;
+        }
         // Validate REQ-12: The system shall reject approval when the criterion maxima do not sum to the question maximum
         const sum = Number(criteria.reduce((acc, c) => acc + (Number(c.maxMarks) || 0), 0).toFixed(2));
         const qMax = Number(Number(q.maxMarks).toFixed(2));
@@ -183,6 +232,12 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           return;
         }
 
+        if (subquestions?.length && (
+          new Set(subquestions.map(part => part.id)).size !== subquestions.length ||
+          Math.abs(subquestions.reduce((sum, part) => sum + part.maxMarks, 0) - qMax) > 0.001 ||
+          subquestions.some(part => !part.originalAnswer.trim() || !part.prompt.trim() || !Number.isFinite(part.maxMarks) || part.maxMarks <= 0 || Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks, 0) - part.maxMarks) > 0.001) ||
+          criteria.some(c => !subquestions.some(part => part.id === c.subquestionId) || !c.sourceExcerpt?.trim())
+        )) { result = {ok:false, error:"Each subquestion needs its original answer and a mark breakdown matching its full marks."}; return; }
         const approvedVersions = d.rubrics.filter((x) => x.questionId === questionId && x.approved);
         const nextVer = approvedVersions.length + 1;
 
@@ -192,6 +247,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           criteria,
           modelAnswerText,
           modelAnswerImages,
+          subquestions,
           approved: true,
           approvedAt: nowIso(),
           approvedBy: ACTOR,
