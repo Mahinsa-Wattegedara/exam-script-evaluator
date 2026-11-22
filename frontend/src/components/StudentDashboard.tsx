@@ -15,6 +15,14 @@ function StudentDashboardContent() {
   const { state, user, actions } = useStore();
   const studentId = user?.studentId ?? user?.username ?? "";
   const myResults = studentId ? (state.studentResults[studentId] ?? []) : [];
+  const latestResultsByQuestion = (() => {
+    const byId = new Map<string, StudentQuestionResult>();
+    for (const r of myResults) {
+      const prev = byId.get(r.questionId);
+      if (!prev || r.resultVersion > prev.resultVersion) byId.set(r.questionId, r);
+    }
+    return [...byId.values()];
+  })();
   const myRequests = studentId ? state.reviewRequests.filter((r) => r.studentId === studentId) : [];
 
   const mappedCode = studentId
@@ -29,7 +37,7 @@ function StudentDashboardContent() {
   const [reviewSubmitted, setReviewSubmitted] = useState<boolean>(false);
 
   // Map real questions from live store
-  const currentQuestions = myResults.map((r) => ({
+  const currentQuestions = latestResultsByQuestion.map((r) => ({
     id: r.questionId,
     number: r.questionNumber,
     topic: state.assessment.questions.find((q) => q.id === r.questionId)?.prompt.slice(0, 30) || "Question",
@@ -344,6 +352,16 @@ function StudentDashboardContent() {
                   {activeQuestion.maxMarks}
                 </p>
               </div>
+
+              {existingRequest?.status === "RESOLVED" && existingRequest.teacherResolutionNote?.trim() ? (
+                <div className="rounded-2xl border border-[#e4e7ef] bg-white p-6 shadow-2xs">
+                  <h2 className="text-base font-semibold text-[#111827]">Teacher response</h2>
+                  <p className="mt-2 text-sm text-[#4b5563]">{existingRequest.teacherResolutionNote.trim()}</p>
+                  <p className="mt-2 text-sm text-[#4b5563]">
+                    The mark is still {activeQuestion.awardedMarks} / {activeQuestion.maxMarks}.
+                  </p>
+                </div>
+              ) : null}
 
               {/* Form & Summary Card */}
               <div className="grid gap-6 lg:grid-cols-12 items-start">

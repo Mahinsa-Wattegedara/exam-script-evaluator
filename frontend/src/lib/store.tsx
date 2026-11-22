@@ -6,7 +6,7 @@ import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
 import type { ImportedQuestion } from "./marking-scheme-import";
-import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
 const ACTOR = "Dr. S. Silva";
@@ -44,6 +44,25 @@ const StoreCtx = createContext<Ctx | null>(null);
 
 function audit(d: State, action: string, detail: string) {
   d.audit.unshift({ id: uid("au"), at: nowIso(), actor: ACTOR, action, detail });
+}
+
+/** 81 words for Objects and classes, Encapsulation, and Inheritance. */
+function feedbackFromCriteria(criteria: StudentCriterionMark[]): string {
+  const awarded = criteria.reduce((sum, row) => sum + row.awarded, 0);
+  const max = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+  const sentences = criteria.map((row) => {
+    if (row.status === "COVERED") {
+      return `Your answer included ${row.description}, and that point was fully covered.`;
+    }
+    if (row.status === "PARTIAL") {
+      return `${row.description} was only partly covered: some of the expected detail is present, but not enough to award the full mark for that point.`;
+    }
+    return `${row.description} was missing, so that point received no marks.`;
+  });
+  const parts = criteria.map((row) => `${row.awarded} out of ${row.maxMark} for ${row.description}`);
+  const breakdown =
+    parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  return `${sentences.join(" ")} The released mark for this question is ${awarded} out of ${max}, which is the sum of ${breakdown}.`;
 }
 
 function makeActions(mutate: Ctx["mutate"], getState: () => State) {
@@ -727,9 +746,14 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       evidenceSpanIds?: string[],
     ) =>
       mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const released = (d.studentResults?.[id] ?? []).some((r) => r.questionId === questionId);
+        if (!released) return;
+
         d.reviewRequests.unshift({
           id: uid("req"),
-          studentId,
+          studentId: id,
           questionId,
           questionNumber,
           issueType,
@@ -741,8 +765,84 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         audit(
           d,
           "APPEAL",
-          `Student ${studentId} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
+          `Student ${id} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
         );
+      }),
+
+    resolveReviewRequest: (requestId: string, note: string) =>
+      mutate((d) => {
+        const id = requestId.trim();
+        const text = note.trim();
+        if (!id || !text) return;
+        const req = d.reviewRequests.find((r) => r.id === id);
+        if (!req || req.status !== "PENDING_TEACHER_REVIEW") return;
+        req.status = "RESOLVED";
+        req.teacherResolutionNote = text;
+        audit(
+          d,
+          "RESOLVE",
+          `Student ${req.studentId} review for ${req.questionNumber} resolved; mark was not changed`,
+        );
+      }),
+
+    reviseReleasedMark: (studentId: string, awardedMarks: number) =>
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const q = d.assessment.questions[0];
+        if (!q) return;
+        const rows = (d.studentResults?.[id] ?? []).filter((r) => r.questionId === q.id);
+        if (!rows.length) return;
+        const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+        if (
+          !Number.isInteger(awardedMarks) ||
+          awardedMarks < 0 ||
+          awardedMarks > latest.maxMarks ||
+          awardedMarks === latest.awardedMarks
+        ) {
+          return;
+        }
+        const next = structuredClone(latest);
+        next.resultVersion = latest.resultVersion + 1;
+        next.awardedMarks = awardedMarks;
+        next.releasedAt = nowIso();
+        next.feedbackText = `The released mark for this question is now ${awardedMarks} out of ${latest.maxMarks}.`;
+        (d.studentResults![id] ??= []).push(next);
+        audit(
+          d,
+          "MARK_REVISED",
+          `Student ${id} ${latest.questionNumber}: mark ${latest.awardedMarks} → ${awardedMarks}, resultVersion ${next.resultVersion}`,
+        );
+      }),
+
+    releaseResult: (studentId: string) =>
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const q = d.assessment.questions[0];
+        if (!q) return;
+        if (!d.studentResults) d.studentResults = {};
+        const criteria: StudentCriterionMark[] = [
+          { criterionId: "C1", description: "Objects and classes", awarded: 2, maxMark: 2, status: "COVERED" },
+          { criterionId: "C2", description: "Encapsulation", awarded: 1, maxMark: 2, status: "PARTIAL" },
+          { criterionId: "C3", description: "Inheritance", awarded: 0, maxMark: 1, status: "MISSING" },
+        ];
+        d.studentResults[id] = [
+          {
+            questionId: q.id,
+            questionNumber: q.number,
+            questionPrompt: q.prompt,
+            maxMarks: 5,
+            awardedMarks: 3,
+            resultVersion: 1,
+            releasedAt: nowIso(),
+            transcriptVersion: 1,
+            approvedTranscript: "",
+            feedbackText: feedbackFromCriteria(criteria),
+            criteria,
+          },
+        ];
+        audit(d, "RELEASE", `Released Q1 to student ${id}`);
       }),
   };
 }

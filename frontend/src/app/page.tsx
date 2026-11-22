@@ -6,10 +6,54 @@ import { StudentDashboard } from "@/components/StudentDashboard";
 import { Badge, fmtTime } from "@/components/ui";
 import { STAGES, orderedImages, scriptStage, scriptStatus } from "@/lib/logic";
 import { useStore } from "@/lib/store";
+import type { StudentReviewRequest } from "@/lib/types";
+
+function PendingReviewRow({
+  request,
+  onResolve,
+}: {
+  request: StudentReviewRequest;
+  onResolve: (requestId: string, note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+
+  return (
+    <li className="py-3 first:pt-0 last:pb-0">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+        <span className="font-mono font-medium text-[color:var(--x-ink,#111827)]">{request.studentId}</span>
+        <span className="font-medium text-[color:var(--x-ink,#111827)]">{request.questionNumber}</span>
+        <span className="text-[11px] text-slate-400">{fmtTime(request.submittedAt)}</span>
+      </div>
+      <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">{request.reason}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Resolution note"
+          className="h-10 min-w-[12rem] flex-1 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const trimmed = note.trim();
+            if (!trimmed) return;
+            onResolve(request.id, trimmed);
+          }}
+          className="inline-flex h-10 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+        >
+          Resolve
+        </button>
+      </div>
+    </li>
+  );
+}
 
 export default function Overview() {
   const { state, user, actions } = useStore();
   const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
+  const [releaseStudentId, setReleaseStudentId] = useState("245001K");
+  const [newReleasedMark, setNewReleasedMark] = useState("");
 
   if (user?.role === "ADMIN") {
     return <AdminDashboard />;
@@ -25,6 +69,7 @@ export default function Overview() {
   const awaitingReviewCount = count((s) => s === "NEEDS_REVIEW");
   const approvedCount = count((s) => s === "READY_FOR_AI");
   const isReleased = Object.keys(state.studentResults || {}).length > 0;
+  const pendingReviews = state.reviewRequests.filter((r) => r.status === "PENDING_TEACHER_REVIEW");
 
   // Dynamic Pipeline Stage Tracking
   const hasScheme = (state.rubrics?.length ?? 0) > 0 && state.rubrics.some((r) => r.approved);
@@ -153,7 +198,41 @@ export default function Overview() {
             Object Oriented Programming · Level 2 Semester 1 · 2026
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-[color:var(--x-secondary,#4b5563)]">
+            <span className="font-medium whitespace-nowrap">Student id</span>
+            <input
+              type="text"
+              value={releaseStudentId}
+              onChange={(e) => setReleaseStudentId(e.target.value)}
+              className="h-12 w-32 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => actions.releaseResult(releaseStudentId)}
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+          >
+            Release
+          </button>
+          <label className="flex items-center gap-2 text-sm text-[color:var(--x-secondary,#4b5563)]">
+            <span className="font-medium whitespace-nowrap">New mark</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={newReleasedMark}
+              onChange={(e) => setNewReleasedMark(e.target.value)}
+              className="h-12 w-24 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => actions.reviseReleasedMark(releaseStudentId, Number(newReleasedMark))}
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+          >
+            Update released mark
+          </button>
           <Link
             href="/upload"
             className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
@@ -164,6 +243,25 @@ export default function Overview() {
             Create assessment
           </Link>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+          Pending review requests
+        </div>
+        {pendingReviews.length === 0 ? (
+          <p className="mt-4 text-sm text-[color:var(--x-secondary,#4b5563)]">No pending review requests.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-[color:var(--x-border,#e4e7ef)]">
+            {pendingReviews.map((r) => (
+              <PendingReviewRow
+                key={r.id}
+                request={r}
+                onResolve={actions.resolveReviewRequest}
+              />
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* 5-Stage Pipeline Progress Card (Figma 121:2306) */}
