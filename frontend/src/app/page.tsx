@@ -71,6 +71,13 @@ export default function Overview() {
   const isReleased = Object.keys(state.studentResults || {}).length > 0;
   const pendingReviews = state.reviewRequests.filter((r) => r.status === "PENDING_TEACHER_REVIEW");
 
+  const q1 = state.assessment.questions[0];
+  const approvedQ1Rubric = q1
+    ? state.rubrics
+        .filter((r) => r.questionId === q1.id && r.approved)
+        .sort((a, b) => b.version - a.version)[0]
+    : undefined;
+
   // Dynamic Pipeline Stage Tracking
   const hasScheme = (state.rubrics?.length ?? 0) > 0 && state.rubrics.some((r) => r.approved);
   const hasUploads = scripts.length > 0;
@@ -243,6 +250,23 @@ export default function Overview() {
             Create assessment
           </Link>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+          Marking scheme
+        </div>
+        {!approvedQ1Rubric ? (
+          <p className="mt-4 text-sm text-[color:var(--x-secondary,#4b5563)]">The marking scheme is not approved yet.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-[color:var(--x-border,#e4e7ef)]">
+            {approvedQ1Rubric.criteria.map((c) => (
+              <li key={c.id} className="py-3 first:pt-0 last:pb-0 text-sm text-[color:var(--x-ink,#111827)]">
+                {c.description} · {c.maxMarks}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
