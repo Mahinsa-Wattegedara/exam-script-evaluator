@@ -108,7 +108,6 @@ export default function ContractPage() {
                   approved_at: appR.approvedAt,
                   approved_by: appR.approvedBy,
                   criteria: appR.criteria,
-                  subquestions: appR.subquestions,
                   model_answer_supplement: appR.modelAnswerText || undefined,
                 };
                 return (
