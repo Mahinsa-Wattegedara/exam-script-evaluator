@@ -746,9 +746,14 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       evidenceSpanIds?: string[],
     ) =>
       mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const released = (d.studentResults?.[id] ?? []).some((r) => r.questionId === questionId);
+        if (!released) return;
+
         d.reviewRequests.unshift({
           id: uid("req"),
-          studentId,
+          studentId: id,
           questionId,
           questionNumber,
           issueType,
@@ -760,7 +765,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         audit(
           d,
           "APPEAL",
-          `Student ${studentId} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
+          `Student ${id} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
         );
       }),
 
