@@ -220,7 +220,7 @@ export default function Overview() {
           </label>
           <button
             type="button"
-            onClick={() => actions.releaseResult(releaseStudentId)}
+            onClick={() => actions.releaseResult(releaseStudentId, criterionStatus)}
             className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
           >
             Release
