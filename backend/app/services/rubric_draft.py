@@ -113,6 +113,39 @@ def parse_rubric_questions(content: str) -> list[DraftQuestion]:
     return questions
 
 
+async def _draft_with_gemini(transcript: str, gemini_key: str) -> tuple[list[DraftQuestion], str]:
+    prompt_text = (
+        "Return only valid JSON. Rubric output is an unapproved teacher draft.\n\n"
+        + RUBRIC_PROMPT
+        + transcript
+    )
+    rubric_model = _resolve_gemini_model()
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for attempt in range(2):
+            rubric_model, parsed = await _call_gemini_vision_json(
+                client,
+                gemini_key,
+                rubric_model,
+                [{"text": prompt_text}],
+                thinking_level="LOW",
+            )
+            try:
+                questions = parse_rubric_questions(json.dumps(parsed))
+                return questions, rubric_model
+            except (ValueError, KeyError, TypeError, IndexError) as exc:
+                if attempt == 1:
+                    raise ValueError(
+                        f"The rubric model could not produce a complete marking guide after a correction attempt: {exc}"
+                    ) from exc
+                prompt_text = (
+                    prompt_text
+                    + f"\n\nPREVIOUS INVALID JSON:\n{json.dumps(parsed)}\n\n"
+                    + f"The previous draft failed validation: {exc}. Regenerate the COMPLETE rubric from the source. "
+                    + "Include specific alternatives, an evidence-based scoringGuide for every allowed score, and correct mark totals."
+                )
+    raise ValueError("The rubric model could not produce a complete marking guide.")
+
+
 async def create_rubric_draft(payload: RubricDraftRequest) -> RubricDraftResponse:
     transcript = payload.text.strip()
     ocr_model = None
@@ -137,6 +170,7 @@ async def create_rubric_draft(payload: RubricDraftRequest) -> RubricDraftRespons
                                 {"text": OCR_PROMPT},
                                 {"inlineData": {"mimeType": mime, "data": encoded}},
                             ],
+                            thinking_level="MINIMAL",
                         )
                         page_texts.append(f"[Page {page.pageNumber}]\n{parsed.get('text', '')}")
                 transcript = "\n\n".join(page_texts)
@@ -148,9 +182,18 @@ async def create_rubric_draft(payload: RubricDraftRequest) -> RubricDraftRespons
     if not transcript:
         raise ValueError("No text was extracted from the document.")
 
+    rubric_provider = _resolve_env_var("RUBRIC_PROVIDER", "").lower()
     openrouter_key = _resolve_env_var("OPENROUTER_API_KEY")
+    gemini_key = _resolve_gemini_api_key()
+
+    if rubric_provider == "gemini" or (not openrouter_key and gemini_key):
+        if not gemini_key:
+            raise ValueError("GEMINI_API_KEY is required to create rubric drafts with Gemini.")
+        questions, rubric_model = await _draft_with_gemini(transcript, gemini_key)
+        return RubricDraftResponse(questions=questions, transcript=transcript, ocrModel=ocr_model, rubricModel=rubric_model)
+
     if not openrouter_key:
-        raise ValueError("OPENROUTER_API_KEY is required to create rubric drafts.")
+        raise ValueError("OPENROUTER_API_KEY or GEMINI_API_KEY is required to create rubric drafts.")
     rubric_model = _resolve_env_var("OPENROUTER_RUBRIC_MODEL", "qwen/qwen3.7-flash")
     request_body = {
         "model": rubric_model,
@@ -162,29 +205,35 @@ async def create_rubric_draft(payload: RubricDraftRequest) -> RubricDraftRespons
         ],
     }
     headers = {"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        for attempt in range(2):
-            try:
-                response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=request_body)
-            except httpx.ConnectError:
-                if request_body["model"] == "openrouter/free":
-                    raise
-                response = None
-            if request_body["model"] != "openrouter/free" and (response is None or response.status_code == 429):
-                request_body["model"] = "openrouter/free"
-                response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=request_body)
-            if response.status_code >= 400:
-                error = response.json().get("error", {}).get("message", "OpenRouter request failed")
-                raise ValueError(f"OpenRouter could not create a rubric draft: {error}")
-            response_data = response.json()
-            rubric_model = response_data.get("model", request_body["model"])
-            try:
-                content = response_data["choices"][0]["message"]["content"]
-                questions = parse_rubric_questions(content)
-                break
-            except (ValueError, KeyError, TypeError, IndexError) as exc:
-                if attempt == 1:
-                    raise ValueError(f"The rubric model could not produce a complete marking guide after a correction attempt: {exc}") from exc
-                request_body["messages"].append({"role": "user", "content": f"The previous draft failed validation: {exc}. Regenerate the COMPLETE rubric from the source. Include specific alternatives, an evidence-based scoringGuide for every allowed score, and correct mark totals."})
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for attempt in range(2):
+                try:
+                    response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=request_body)
+                except httpx.ConnectError:
+                    if request_body["model"] == "openrouter/free":
+                        raise
+                    response = None
+                if request_body["model"] != "openrouter/free" and (response is None or response.status_code == 429):
+                    request_body["model"] = "openrouter/free"
+                    response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=request_body)
+                if response.status_code >= 400:
+                    error = response.json().get("error", {}).get("message", "OpenRouter request failed")
+                    raise ValueError(f"OpenRouter could not create a rubric draft: {error}")
+                response_data = response.json()
+                rubric_model = response_data.get("model", request_body["model"])
+                try:
+                    content = response_data["choices"][0]["message"]["content"]
+                    questions = parse_rubric_questions(content)
+                    break
+                except (ValueError, KeyError, TypeError, IndexError) as exc:
+                    if attempt == 1:
+                        raise ValueError(f"The rubric model could not produce a complete marking guide after a correction attempt: {exc}") from exc
+                    request_body["messages"].append({"role": "user", "content": f"The previous draft failed validation: {exc}. Regenerate the COMPLETE rubric from the source. Include specific alternatives, an evidence-based scoringGuide for every allowed score, and correct mark totals."})
+    except httpx.TimeoutException:
+        if gemini_key:
+            questions, rubric_model = await _draft_with_gemini(transcript, gemini_key)
+        else:
+            raise
 
     return RubricDraftResponse(questions=questions, transcript=transcript, ocrModel=ocr_model, rubricModel=rubric_model)

@@ -45,7 +45,7 @@ function RubricContent() {
   const [schemeText, setSchemeText] = useState("");
   const [importError, setImportError] = useState("");
   const [readingScheme, setReadingScheme] = useState(false);
-  const [schemeFile, setSchemeFile] = useState<File | null>(null);
+  const [schemeFiles, setSchemeFiles] = useState<File[]>([]);
   const [generatingRubric, setGeneratingRubric] = useState(false);
   const [pendingImport, setPendingImport] = useState<ImportedQuestion[] | null>(null);
   const importBlocked = state.scripts.length > 0 || state.answers.length > 0 || rubrics.some((r) => r.approved);
@@ -288,14 +288,51 @@ function RubricContent() {
     setSelectedQId(`q${nextIdx}`);
   }
 
-  async function handleSchemeFile(file: File | undefined) {
-    if (!file) return;
-    setSchemeFile(file);
+  const isPdfFile = (file: File) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  const isImageFile = (file: File) =>
+    ["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+    /\.(jpe?g|png|webp)$/i.test(file.name);
+  const isTxtFile = (file: File) => file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt");
+
+  function fileToImagePayload(file: File, pageNumber: number): Promise<{ pageNumber: number; mimeType: string; base64Data: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const base64Data = result.includes(",") ? result.split(",")[1] : result;
+        const mimeType =
+          file.type && file.type.startsWith("image/")
+            ? file.type
+            : file.name.toLowerCase().endsWith(".png")
+              ? "image/png"
+              : file.name.toLowerCase().endsWith(".webp")
+                ? "image/webp"
+                : "image/jpeg";
+        resolve({ pageNumber, mimeType, base64Data });
+      };
+      reader.onerror = () => reject(new Error(`Could not read image ${file.name}.`));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleSchemeFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    setSchemeFiles(files);
     setSchemeText("");
     setReadingScheme(true);
     setImportError("");
     try {
-      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      if (files.every(isImageFile)) {
+        if (files.length > 10) throw new Error("Upload at most 10 image pages at a time.");
+        // Images are sent directly to Vision OCR when generating the rubric draft.
+        return;
+      }
+      if (files.length > 1) {
+        throw new Error("Select either up to 10 images, a single PDF, or a single .txt file.");
+      }
+      const file = files[0];
+      if (isPdfFile(file)) {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
           "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -310,28 +347,33 @@ function RubricContent() {
           pages.push(content.items.map((item) => "str" in item ? `${item.str}${item.hasEOL ? "\n" : " "}` : "").join(""));
         }
         setSchemeText(pages.join("\n"));
-      } else {
+      } else if (isTxtFile(file)) {
         setSchemeText(await file.text());
+      } else {
+        throw new Error(`${file.name} is not supported. Upload JPG/PNG/WebP images, a PDF, or a .txt file.`);
       }
     } catch (error) {
-      setSchemeFile(null);
-      setImportError(error instanceof Error ? error.message : "Could not read this file. Try another PDF or a .txt file.");
+      setSchemeFiles([]);
+      setImportError(error instanceof Error ? error.message : "Could not read this file. Try JPG/PNG images, a PDF, or a .txt file.");
     } finally {
       setReadingScheme(false);
     }
   }
 
   async function handleGenerateRubric() {
-    if (!schemeFile && !schemeText.trim()) return;
+    if (schemeFiles.length === 0 && !schemeText.trim()) return;
     if (importBlocked) { setImportError("This assessment has student scripts or approved rubrics. Import is blocked to protect them."); return; }
     setGeneratingRubric(true);
     setImportError("");
     try {
       let pages: { pageNumber: number; mimeType: string; base64Data: string }[] = [];
-      if ((schemeFile?.type === "application/pdf" || schemeFile?.name.toLowerCase().endsWith(".pdf")) && schemeText.trim().length < 200) {
+      if (schemeFiles.length > 0 && schemeFiles.every(isImageFile)) {
+        pages = await Promise.all(schemeFiles.map((file, idx) => fileToImagePayload(file, idx + 1)));
+      } else if (schemeFiles.length === 1 && isPdfFile(schemeFiles[0]) && schemeText.trim().length < 200) {
+        const pdfFile = schemeFiles[0];
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const pdf = await pdfjs.getDocument({ data: new Uint8Array(await schemeFile.arrayBuffer()) }).promise;
+        const pdf = await pdfjs.getDocument({ data: new Uint8Array(await pdfFile.arrayBuffer()) }).promise;
         if (pdf.numPages > 10) throw new Error("Upload a PDF with at most 10 pages.");
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
           const page = await pdf.getPage(pageNumber);
@@ -352,6 +394,9 @@ function RubricContent() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || "Could not generate a rubric draft.");
+      if (result.transcript && !schemeText.trim()) {
+        setSchemeText(result.transcript);
+      }
       const items: ImportedQuestion[] = result.questions.map((question: {
         number: string; prompt: string; maxMarks: number; modelAnswerText: string; criteria: RubricCriterion[]; subquestions: RubricSubquestion[];
       }) => ({
@@ -432,7 +477,7 @@ function RubricContent() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3" aria-label="Marking scheme workflow">
-        {[['1', 'Upload your script', 'Use a full PDF or paste your model answer.'], ['2', 'Review each question', 'Check the question, answer and marks.'], ['3', 'Approve the scheme', 'Save a draft, then approve when ready.']].map(([n, title, help]) => (
+        {[['1', 'Upload your script', 'Use images, a PDF, or paste your model answer.'], ['2', 'Review each question', 'Check the question, answer and marks.'], ['3', 'Approve the scheme', 'Save a draft, then approve when ready.']].map(([n, title, help]) => (
           <div key={n} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-sm font-bold text-indigo-700">{n}</span>
             <div><p className="text-sm font-semibold text-slate-900">{title}</p><p className="mt-1 text-xs leading-5 text-slate-500">{help}</p></div>
@@ -454,16 +499,26 @@ function RubricContent() {
           <div className="grid gap-5 p-5 md:grid-cols-[1fr_1.2fr]">
             <div className="flex flex-col justify-center rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 p-6 text-center">
               <span className="mx-auto mb-3 flex size-11 items-center justify-center rounded-xl bg-white text-xl text-indigo-600" aria-hidden="true">↑</span>
-              <p className="text-sm font-semibold text-slate-900">{schemeFile ? schemeFile.name : "Choose your answer script"}</p>
-              <p className="mt-2 text-xs text-slate-500">PDF or TXT · up to 10 PDF pages</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {schemeFiles.length === 0
+                  ? "Choose your answer script"
+                  : schemeFiles.length === 1
+                    ? schemeFiles[0].name
+                    : `${schemeFiles.length} image pages selected`}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                {schemeFiles.length > 0 && schemeFiles.every(isImageFile)
+                  ? "Ready for Vision OCR — click Generate questions & rubric"
+                  : "PNG, JPG, PDF, or TXT · up to 10 pages"}
+              </p>
               <label className="mx-auto mt-4 cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-                {readingScheme ? "Reading file…" : schemeFile ? "Choose another file" : "Browse files"}
-                <input type="file" accept=".pdf,.txt,application/pdf,text/plain" disabled={readingScheme || generatingRubric} className="hidden" onChange={(e) => { void handleSchemeFile(e.target.files?.[0]); e.target.value = ""; }} />
+                {readingScheme ? "Reading file…" : schemeFiles.length > 0 ? "Choose other files" : "Browse files"}
+                <input type="file" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.pdf,.txt,application/pdf,text/plain" disabled={readingScheme || generatingRubric} className="hidden" onChange={(e) => { void handleSchemeFiles(e.target.files); e.target.value = ""; }} />
               </label>
             </div>
             <label className="text-xs font-medium text-slate-600">Or paste / review the script text
               <textarea value={schemeText} onChange={(e) => { setSchemeText(e.target.value); setImportError(""); }} rows={6} aria-label="Full marking scheme text" placeholder={"Q1. Explain encapsulation. (5 marks)\nModel answer: ..."} className={fieldClass} />
-              <span className="mt-2 block font-normal leading-5 text-slate-500">Scanned PDFs are read automatically. Check generated questions and marks before approval.</span>
+              <span className="mt-2 block font-normal leading-5 text-slate-500">Uploaded images and scanned PDFs are read automatically with Vision OCR. Check generated questions and marks before approval.</span>
             </label>
           </div>
           <div className="border-t border-slate-100 px-5 py-4">
@@ -471,7 +526,7 @@ function RubricContent() {
             {generatingRubric && <p className="mb-3 text-sm text-indigo-700" role="status">Reading your script and building marking points. This can take a few minutes.</p>}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <details className="text-xs text-slate-500"><summary className="cursor-pointer">Have a formatted scheme?</summary><p className="mt-2">Use Q1 | Question | 5 and C1 | Marking point | 5 on separate lines.</p><Button size="sm" className="mt-2" onClick={handleImportScheme} disabled={readingScheme || generatingRubric || !schemeText.trim()}>Import formatted text</Button></details>
-              <Button variant="primary" onClick={() => { void handleGenerateRubric(); }} disabled={readingScheme || generatingRubric || (!schemeFile && !schemeText.trim())}>{generatingRubric ? "Creating draft…" : "Generate questions & rubric →"}</Button>
+              <Button variant="primary" onClick={() => { void handleGenerateRubric(); }} disabled={readingScheme || generatingRubric || (schemeFiles.length === 0 && !schemeText.trim())}>{generatingRubric ? "Creating draft…" : "Generate questions & rubric →"}</Button>
             </div>
           </div>
         </Card>
