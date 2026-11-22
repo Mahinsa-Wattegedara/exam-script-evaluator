@@ -39,6 +39,7 @@ type Ctx = {
   logout: () => Promise<void>;
   mutate: (fn: (d: State) => void) => void;
   actions: ReturnType<typeof makeActions>;
+  flushPersistence: () => { ok: boolean; error?: string };
 };
 const StoreCtx = createContext<Ctx | null>(null);
 
@@ -894,6 +895,8 @@ function serialise(s: State): string {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>(() => buildSeed());
+  const [ready, setReady] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const ref = useRef<State>(state);
   ref.current = state;
@@ -951,12 +954,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       let s: State;
       try {
         localStorage.removeItem("m1-enterprise-state-v3");
         localStorage.removeItem("m1-enterprise-state-v2");
-        await clearBlobs().catch(() => undefined);
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
         if (!s.rubrics) {
@@ -1013,34 +1016,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Not signed in
       }
+      if (cancelled) return;
+      ref.current = s;
       setState(s);
+      setReady(true);
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const flushPersistence = useCallback(() => {
+    try {
+      localStorage.setItem(KEY, serialise(ref.current));
+      setStorageError(null);
+      return { ok: true };
+    } catch {
+      const error = "Changes could not be saved in this browser. Browser storage may be full or disabled. Keep this page open and reduce large reference attachments or enable site storage before retrying.";
+      setStorageError(error);
+      return { ok: false, error };
+    }
   }, []);
 
   useEffect(() => {
-    if (!state) return;
-    try {
-      localStorage.setItem(KEY, serialise(state));
-    } catch {
-      /* quota exceeded - demo keeps working in memory */
-    }
-  }, [state]);
+    if (!ready) return;
+    flushPersistence();
+  }, [state, ready, flushPersistence]);
 
   const mutate = useCallback((fn: (d: State) => void) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const d = structuredClone(prev);
-      fn(d);
-      return d;
-    });
+    const d = structuredClone(ref.current);
+    fn(d);
+    ref.current = d;
+    setState(d);
   }, []);
 
   const actionsRef = useRef<ReturnType<typeof makeActions> | null>(null);
   if (!actionsRef.current) actionsRef.current = makeActions(mutate, () => ref.current);
 
   return (
-    <StoreCtx.Provider value={{ state, user, login, register, logout, mutate, actions: actionsRef.current }}>
-      {children}
+    <StoreCtx.Provider value={{ state, user, login, register, logout, mutate, actions: actionsRef.current, flushPersistence }}>
+      {storageError && <div role="alert" className="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-800">{storageError}</div>}
+      {ready ? children : <div role="status" className="p-8 text-center text-sm text-slate-500">Loading saved assessment…</div>}
     </StoreCtx.Provider>
   );
 }
