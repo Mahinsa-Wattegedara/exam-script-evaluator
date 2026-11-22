@@ -769,6 +769,22 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         );
       }),
 
+    resolveReviewRequest: (requestId: string, note: string) =>
+      mutate((d) => {
+        const id = requestId.trim();
+        const text = note.trim();
+        if (!id || !text) return;
+        const req = d.reviewRequests.find((r) => r.id === id);
+        if (!req || req.status !== "PENDING_TEACHER_REVIEW") return;
+        req.status = "RESOLVED";
+        req.teacherResolutionNote = text;
+        audit(
+          d,
+          "RESOLVE",
+          `Student ${req.studentId} review for ${req.questionNumber} resolved; mark was not changed`,
+        );
+      }),
+
     releaseResult: (studentId: string) =>
       mutate((d) => {
         const id = studentId.trim();
