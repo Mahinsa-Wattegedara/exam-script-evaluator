@@ -1,0 +1,73 @@
+OBJECT-ORIENTED PROGRAMMING — SAMPLE MODEL ANSWER SCRIPT
+Assessment: Mid-Semester Examination
+Total: 20 marks
+
+Q1. Encapsulation and abstraction (10 marks)
+
+Q1(a). Define encapsulation and explain why access modifiers are used. (3 marks)
+Answer:
+Encapsulation groups an object's data and the methods that operate on that data in one class. Access modifiers control which code may use or change the internal state. A private field prevents callers from changing it directly, while public methods provide a controlled interface. This helps preserve class invariants, such as ensuring that a bank balance cannot become negative.
+
+Q1(b). Write a Java class named BankAccount with a private balance, a constructor, a deposit method, and a getter. Reject a non-positive deposit. (4 marks)
+Answer:
+public class BankAccount {
+    private double balance;
+
+    public BankAccount(double openingBalance) {
+        if (openingBalance < 0) {
+            throw new IllegalArgumentException("Opening balance cannot be negative");
+        }
+        this.balance = openingBalance;
+    }
+
+    public void deposit(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Deposit must be positive");
+        }
+        balance += amount;
+    }
+
+    public double getBalance() {
+        return balance;
+    }
+}
+
+Q1(c). Distinguish abstraction from encapsulation using the BankAccount class. (3 marks)
+Answer:
+Abstraction presents the useful operations of an object while hiding unnecessary implementation details. A caller needs to know that deposit(amount) adds money, but does not need to know how balance is stored. Encapsulation protects the balance field and groups it with the methods that manage it. In this class, the public deposit and getBalance methods form the abstraction, and the private balance field is part of the encapsulated state.
+
+Q2. Inheritance and polymorphism (10 marks)
+
+Q2(a). Define inheritance and give one appropriate use case. (3 marks)
+Answer:
+Inheritance lets a subclass reuse and specialize the behavior of a superclass. It is appropriate when the subclass has a genuine "is-a" relationship with the superclass. For example, a SavingsAccount is a BankAccount and can add an interest calculation while retaining common account behavior. Inheritance should not be used only to reuse code when the relationship is not meaningful.
+
+Q2(b). Explain method overriding and runtime polymorphism. Use a short Java example. (4 marks)
+Answer:
+Method overriding occurs when a subclass supplies its own implementation of an inherited instance method with the same signature. Runtime polymorphism means that a call through a superclass reference runs the implementation belonging to the actual object.
+
+class Shape {
+    double area() { return 0; }
+}
+
+class Rectangle extends Shape {
+    private final double width;
+    private final double height;
+
+    Rectangle(double width, double height) {
+        this.width = width;
+        this.height = height;
+    }
+
+    @Override
+    double area() { return width * height; }
+}
+
+Shape shape = new Rectangle(3, 4);
+System.out.println(shape.area()); // Prints 12.0
+
+The variable has type Shape, but the object is a Rectangle, so Rectangle.area() executes.
+
+Q2(c). Compare an interface with an abstract class and state when you would use each. (3 marks)
+Answer:
+An interface defines a capability or contract that different classes can implement, such as Comparable. A class may implement multiple interfaces. An abstract class can share state, constructors, and implemented methods among closely related subclasses, but a Java class can extend only one class. I would use an interface for behavior shared by otherwise unrelated types and an abstract class when related types need common state or implementation.

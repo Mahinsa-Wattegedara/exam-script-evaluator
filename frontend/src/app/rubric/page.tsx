@@ -1,14 +1,17 @@
 "use client";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, CardHeader } from "@/components/ui";
+import { RubricSubquestionEditor } from "@/components/rubric-subquestion";
+import { Alert, Badge, Button, Card, Modal } from "@/components/ui";
 import { isPlaceholderPrompt, sanitizeCriterionDescription, useStore } from "@/lib/store";
-import type { ModelAnswerImage, RubricCriterion } from "@/lib/types";
+import { parseMarkingScheme } from "@/lib/marking-scheme-import";
+import type { ImportedQuestion } from "@/lib/marking-scheme-import";
+import type { ModelAnswerImage, RubricCriterion, RubricSubquestion } from "@/lib/types";
 
 function RubricContent() {
   const searchParams = useSearchParams();
   const qParam = searchParams.get("q");
-  const { state, actions } = useStore();
+  const { state, actions, flushPersistence } = useStore();
   const { assessment, rubrics } = state;
 
   const [selectedQId, setSelectedQId] = useState<string>(
@@ -26,20 +29,54 @@ function RubricContent() {
   }, [qParam, assessment.questions, selectedQId]);
 
   const currentQ = assessment.questions.find((q) => q.id === selectedQId);
-  const activeRubric = rubrics.find((r) => r.questionId === selectedQId && r.approved);
+  const activeRubric = rubrics.filter((r) => r.questionId === selectedQId && r.approved).sort((a, b) => b.version - a.version)[0];
   const draftRubric = rubrics.find((r) => r.questionId === selectedQId && !r.approved);
 
   const [criteria, setCriteria] = useState<RubricCriterion[]>([]);
+  const [subquestions, setSubquestions] = useState<RubricSubquestion[]>([]);
   const [modelAnswerText, setModelAnswerText] = useState<string>("");
   const [modelImages, setModelImages] = useState<ModelAnswerImage[]>([]);
   const [selectedImgIdx, setSelectedImgIdx] = useState<number>(0);
   const [zoom, setZoom] = useState<number>(1.0);
   const [validationMsg, setValidationMsg] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isExtractingOcr, setIsExtractingOcr] = useState<boolean>(false);
+  const [ocrMessage, setOcrMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showImport, setShowImport] = useState(true);
+  const [schemeText, setSchemeText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [readingScheme, setReadingScheme] = useState(false);
+  const [schemeFiles, setSchemeFiles] = useState<File[]>([]);
+  const [generatingRubric, setGeneratingRubric] = useState(false);
+  const [pendingImport, setPendingImport] = useState<ImportedQuestion[] | null>(null);
+  const importBlocked = state.scripts.length > 0 || state.answers.length > 0 || rubrics.some((r) => r.approved);
+
+  function saveImportedQuestions(items: ImportedQuestion[], replaceDrafts = false) {
+    const imported = actions.importMarkingScheme(items, { replaceDrafts });
+    if (!imported.ok) throw new Error(imported.error || "Could not save drafts.");
+    setSelectedQId(items[0].question.id);
+    setCriteria(items[0].criteria);
+    setSubquestions(items[0].subquestions || []);
+    setModelAnswerText(items[0].modelAnswerText || "");
+    setModelImages([]);
+    setPendingImport(null);
+    setImportError("");
+    setShowImport(false);
+    setValidationMsg({ ok: true, msg: `Created ${items.length} unapproved rubric drafts. Review every question, answer, criterion, and mark before approval.` });
+  }
+
+  function reviewImport(items: ImportedQuestion[]) {
+    if (importBlocked) throw new Error("This assessment has student scripts or approved rubrics. Import is blocked to protect them.");
+    if (rubrics.length || assessment.questions.some((q) => !isPlaceholderPrompt(q.prompt)) || hasValidPrompt || criteria.some((c) => c.description.trim()) || modelAnswerText.trim() || modelImages.length) {
+      setPendingImport(items);
+    } else {
+      saveImportedQuestions(items);
+    }
+  }
 
   useEffect(() => {
     if (!currentQ) return;
     const existing = draftRubric || activeRubric;
+    setSubquestions(existing?.subquestions || []);
     if (existing) {
       setCriteria(
         existing.criteria.length > 0
@@ -97,7 +134,13 @@ function RubricContent() {
   const isSumValid = currentQ ? Math.abs(criteriaSum - qMaxMarks) < 0.001 : false;
   const hasValidPrompt = Boolean(currentQ && !isPlaceholderPrompt(currentQ.prompt));
   const allCriteriaFilled = criteria.length > 0 && criteria.every((c) => c.description.trim().length > 0);
-  const isReadyToApprove = hasValidPrompt && allCriteriaFilled && isSumValid;
+  const hasCompleteScoring = criteria.every((c) => c.acceptedAlternatives.some((answer) => answer.trim()) && c.scoringGuide && c.scoringGuide.length === c.allowedPartialCredits.length && new Set(c.scoringGuide.map((entry) => entry.marks)).size === c.scoringGuide.length && c.scoringGuide.every((entry) => c.allowedPartialCredits.includes(entry.marks) && entry.description.trim()));
+  const hasValidSubquestionTotals = !subquestions.length || (
+    Math.abs(subquestions.reduce((sum, part) => sum + part.maxMarks, 0) - qMaxMarks) < 0.001 &&
+    subquestions.every(part => part.prompt.trim() && part.originalAnswer.trim() && Number.isFinite(part.maxMarks) && part.maxMarks > 0 && Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks,0) - part.maxMarks) < 0.001) &&
+    criteria.every(c => subquestions.some(part => part.id === c.subquestionId) && c.sourceExcerpt?.trim())
+  );
+  const isReadyToApprove = hasValidPrompt && allCriteriaFilled && isSumValid && hasCompleteScoring && hasValidSubquestionTotals;
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -105,26 +148,55 @@ function RubricContent() {
 
     const fileList = Array.from(files);
     e.target.value = "";
-
-    const newImages: ModelAnswerImage[] = await Promise.all(
-      fileList.map((file, idx) => {
-        return new Promise<ModelAnswerImage>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const url = event.target?.result as string;
-            resolve({
-              id: `img-model-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-              fileName: file.name,
-              fileFormat: file.type.includes("png") ? "PNG" : "JPEG",
+    const newImages: ModelAnswerImage[] = [];
+    try {
+      for (const file of fileList) {
+        if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          const pdfjs = await import("pdfjs-dist");
+          pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+          const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+          if (pdf.numPages > 10) throw new Error(`${file.name} has more than 10 pages. Upload a shorter PDF.`);
+          for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+            const page = await pdf.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.ceil(viewport.width);
+            canvas.height = Math.ceil(viewport.height);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Could not render a PDF page.");
+            await page.render({ canvas, canvasContext: context, viewport }).promise;
+            newImages.push({
+              id: `img-model-${crypto.randomUUID()}`,
+              fileName: `${file.name} · page ${pageNumber}`,
+              fileFormat: "JPEG",
               fileSizeBytes: file.size,
-              originalUrl: url,
-              pageNumber: modelImages.length + idx + 1,
+              originalUrl: canvas.toDataURL("image/jpeg", 0.85),
+              pageNumber: modelImages.length + newImages.length + 1,
             });
-          };
-          reader.readAsDataURL(file);
-        });
-      })
-    );
+          }
+        } else if (file.type === "image/jpeg" || file.type === "image/png") {
+          const url = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+            reader.readAsDataURL(file);
+          });
+          newImages.push({
+            id: `img-model-${crypto.randomUUID()}`,
+            fileName: file.name,
+            fileFormat: file.type === "image/png" ? "PNG" : "JPEG",
+            fileSizeBytes: file.size,
+            originalUrl: url,
+            pageNumber: modelImages.length + newImages.length + 1,
+          });
+        } else {
+          throw new Error(`${file.name} must be a PDF, JPEG, or PNG file.`);
+        }
+      }
+    } catch (error) {
+      setValidationMsg({ ok: false, msg: error instanceof Error ? error.message : "Could not read the uploaded file." });
+      return;
+    }
 
     const updatedImages = [...modelImages, ...newImages];
     setModelImages(updatedImages);
@@ -138,7 +210,7 @@ function RubricContent() {
       setSelectedQId("q1");
     }
     if (targetQId) {
-      actions.saveRubricDraft(targetQId, criteria, modelAnswerText, updatedImages);
+      actions.saveRubricDraft(targetQId, criteria, modelAnswerText, updatedImages, subquestions);
     }
   }
 
@@ -158,7 +230,7 @@ function RubricContent() {
       if (removed?.id) {
         actions.removeModelAnswerImage(currentQ.id, removed.id);
       }
-      actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, nextImages);
+      actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, nextImages, subquestions);
     }
   }
 
@@ -166,6 +238,8 @@ function RubricContent() {
     const curImg = modelImages[selectedImgIdx];
     if (!curImg || !currentQ) return;
     setIsExtractingOcr(true);
+    setOcrMessage(null);
+    setValidationMsg(null);
     try {
       const base64Data = curImg.originalUrl.includes(",")
         ? curImg.originalUrl.split(",")[1]
@@ -186,28 +260,175 @@ function RubricContent() {
         }),
       });
       const data = await res.json();
-      if (data.ok && data.results?.[0]?.rawText) {
-        setModelAnswerText((prev) =>
-          prev ? `${prev}\n\n${data.results[0].rawText}` : data.results[0].rawText,
-        );
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || data.detail || "Text extraction failed.");
       }
-    } catch {
-      // Keep existing text
+      const extractedText = data.results?.[0]?.rawText?.trim();
+      if (!extractedText) {
+        throw new Error("No text was found on this page. Try a clearer scan or type the model answer in the notes field.");
+      }
+      setModelAnswerText((prev) =>
+        prev ? `${prev}\n\n${extractedText}` : extractedText,
+      );
+      setValidationMsg({ ok: true, msg: "Text extracted. Review it against the uploaded page before saving." });
+      setOcrMessage({ ok: true, text: "Text extracted. Review it before saving." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Text extraction failed.";
+      setValidationMsg({ ok: false, msg: message });
+      setOcrMessage({ ok: false, text: message });
     } finally {
       setIsExtractingOcr(false);
     }
   }
 
   function handleAddQuestion() {
+    if (currentQ) actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages, subquestions);
+    const nextIdx = Math.max(0, ...assessment.questions.map((q) => Number(q.number.slice(1)) || 0)) + 1;
     actions.addQuestion();
-    const nextIdx = assessment.questions.length + 1;
     setSelectedQId(`q${nextIdx}`);
+  }
+
+  const isPdfFile = (file: File) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  const isImageFile = (file: File) =>
+    ["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+    /\.(jpe?g|png|webp)$/i.test(file.name);
+  const isTxtFile = (file: File) => file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt");
+
+  function fileToImagePayload(file: File, pageNumber: number): Promise<{ pageNumber: number; mimeType: string; base64Data: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const base64Data = result.includes(",") ? result.split(",")[1] : result;
+        const mimeType =
+          file.type && file.type.startsWith("image/")
+            ? file.type
+            : file.name.toLowerCase().endsWith(".png")
+              ? "image/png"
+              : file.name.toLowerCase().endsWith(".webp")
+                ? "image/webp"
+                : "image/jpeg";
+        resolve({ pageNumber, mimeType, base64Data });
+      };
+      reader.onerror = () => reject(new Error(`Could not read image ${file.name}.`));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleSchemeFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    setSchemeFiles(files);
+    setSchemeText("");
+    setReadingScheme(true);
+    setImportError("");
+    try {
+      if (files.every(isImageFile)) {
+        if (files.length > 10) throw new Error("Upload at most 10 image pages at a time.");
+        // Images are sent directly to Vision OCR when generating the rubric draft.
+        return;
+      }
+      if (files.length > 1) {
+        throw new Error("Select either up to 10 images, a single PDF, or a single .txt file.");
+      }
+      const file = files[0];
+      if (isPdfFile(file)) {
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/build/pdf.worker.min.mjs",
+          import.meta.url,
+        ).toString();
+        const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+        if (pdf.numPages > 10) throw new Error("Upload a PDF with at most 10 pages.");
+        const pages: string[] = [];
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+          const page = await pdf.getPage(pageNumber);
+          const content = await page.getTextContent();
+          pages.push(content.items.map((item) => "str" in item ? `${item.str}${item.hasEOL ? "\n" : " "}` : "").join(""));
+        }
+        setSchemeText(pages.join("\n"));
+      } else if (isTxtFile(file)) {
+        setSchemeText(await file.text());
+      } else {
+        throw new Error(`${file.name} is not supported. Upload JPG/PNG/WebP images, a PDF, or a .txt file.`);
+      }
+    } catch (error) {
+      setSchemeFiles([]);
+      setImportError(error instanceof Error ? error.message : "Could not read this file. Try JPG/PNG images, a PDF, or a .txt file.");
+    } finally {
+      setReadingScheme(false);
+    }
+  }
+
+  async function handleGenerateRubric() {
+    if (schemeFiles.length === 0 && !schemeText.trim()) return;
+    if (importBlocked) { setImportError("This assessment has student scripts or approved rubrics. Import is blocked to protect them."); return; }
+    setGeneratingRubric(true);
+    setImportError("");
+    try {
+      let pages: { pageNumber: number; mimeType: string; base64Data: string }[] = [];
+      if (schemeFiles.length > 0 && schemeFiles.every(isImageFile)) {
+        pages = await Promise.all(schemeFiles.map((file, idx) => fileToImagePayload(file, idx + 1)));
+      } else if (schemeFiles.length === 1 && isPdfFile(schemeFiles[0]) && schemeText.trim().length < 200) {
+        const pdfFile = schemeFiles[0];
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+        const pdf = await pdfjs.getDocument({ data: new Uint8Array(await pdfFile.arrayBuffer()) }).promise;
+        if (pdf.numPages > 10) throw new Error("Upload a PDF with at most 10 pages.");
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+          const page = await pdf.getPage(pageNumber);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.ceil(viewport.width);
+          canvas.height = Math.ceil(viewport.height);
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Could not render PDF page.");
+          await page.render({ canvas, canvasContext: context, viewport }).promise;
+          pages.push({ pageNumber, mimeType: "image/jpeg", base64Data: canvas.toDataURL("image/jpeg", 0.85).split(",")[1] });
+        }
+      }
+      const response = await fetch("/api/rubric/draft-from-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pages, text: schemeText }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Could not generate a rubric draft.");
+      if (result.transcript && !schemeText.trim()) {
+        setSchemeText(result.transcript);
+      }
+      const items: ImportedQuestion[] = result.questions.map((question: {
+        number: string; prompt: string; maxMarks: number; modelAnswerText: string; criteria: RubricCriterion[]; subquestions: RubricSubquestion[];
+      }) => ({
+        question: { id: question.number.toLowerCase(), number: question.number, prompt: question.prompt, maxMarks: question.maxMarks },
+        criteria: question.criteria,
+        modelAnswerText: question.modelAnswerText,
+        subquestions: question.subquestions,
+      }));
+      reviewImport(items);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Rubric generation failed.");
+    } finally {
+      setGeneratingRubric(false);
+    }
+  }
+
+  function handleImportScheme() {
+    try {
+      const items = parseMarkingScheme(schemeText);
+      reviewImport(items);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Could not parse the scheme.");
+    }
   }
 
   function handleSaveDraft() {
     if (!currentQ) return;
-    actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages);
-    setValidationMsg({ ok: true, msg: "Marking scheme draft saved successfully." });
+    actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages, subquestions);
+    const saved = flushPersistence();
+    setValidationMsg(saved.ok
+      ? { ok: true, msg: `Draft for ${currentQ.number} saved in this browser. Reopen this same address to continue editing.` }
+      : { ok: false, msg: saved.error || "Draft could not be saved. Keep this page open and retry." });
   }
 
   function handleApproveRubric() {
@@ -224,276 +445,141 @@ function RubricContent() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    const res = actions.approveRubric(currentQ.id, criteria, modelAnswerText, modelImages);
+    const res = actions.approveRubric(currentQ.id, criteria, modelAnswerText, modelImages, subquestions);
     if (!res.ok) {
       setValidationMsg({ ok: false, msg: res.error || "Approval failed." });
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
+      const saved = flushPersistence();
       setValidationMsg({
-        ok: true,
-        msg: `Rubric approved successfully for ${currentQ.number}! Version active for evaluation.`,
+        ok: saved.ok,
+        msg: saved.ok ? `Rubric approved and saved for ${currentQ.number}. Version active for evaluation.` : saved.error || "Approval could not be saved in this browser.",
       });
     }
   }
 
-  const ringPct = qMaxMarks > 0 ? Math.min(100, Math.round((criteriaSum / qMaxMarks) * 100)) : 0;
-  const circumference = 2 * Math.PI * 68; // radius 68 for 160px ring
-  const strokeDashoffset = circumference - (ringPct / 100) * circumference;
+  const fieldClass = "mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-100";
+  const approvalHint = !hasValidPrompt ? "Enter the question text to continue." : !allCriteriaFilled ? "Describe each marking point before approving." : !isSumValid ? `Allocate ${qMaxMarks} marks in total. Currently allocated: ${criteriaSum}.` : !hasValidSubquestionTotals ? "Check each subquestion: its marking points must add up to its full marks and include the original answer." : !hasCompleteScoring ? "Add alternative answers and explain every allowed score before approving." : "All checks passed. This question is ready to approve.";
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Page Header (Figma 19:241) */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mx-auto max-w-7xl space-y-5 pb-12">
+      <Modal open={pendingImport !== null} title="Replace existing marking scheme drafts?" onClose={() => setPendingImport(null)} footer={<>
+        <Button onClick={() => setPendingImport(null)}>Keep existing drafts</Button>
+        <Button variant="primary" onClick={() => { if (!pendingImport) return; try { saveImportedQuestions(pendingImport, true); } catch (error) { setImportError(error instanceof Error ? error.message : "Import failed."); setPendingImport(null); } }}>Replace drafts & import</Button>
+      </>}>
+        <p>This will replace the current {assessment.questions.length} questions, their draft marking points and model answer references with {pendingImport?.length || 0} imported questions. Existing draft edits will be removed.</p>
+        <p className="mt-3 font-medium">Review the new questions:</p>
+        <ul className="mt-2 max-h-60 space-y-2 overflow-y-auto">{pendingImport?.map((item) => <li key={item.question.id} className="rounded-lg bg-slate-50 p-3"><span className="font-semibold">{item.question.number} · {item.question.maxMarks} marks</span><p className="mt-1">{item.question.prompt}</p><p className="mt-1 text-xs text-slate-500">{item.criteria.length} marking points</p></li>)}</ul>
+      </Modal>
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-['Plus_Jakarta_Sans'] text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
-            Marking scheme
-          </h1>
-          <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">
-            {assessment.title || "Mid-semester assessment"} / Draft version {activeRubric ? activeRubric.version + 1 : 1}
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">Assessment preparation</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Marking scheme</h1>
+          <p className="mt-1 text-sm text-slate-500">Turn your model answer into a marking guide, then review each question.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="cursor-pointer inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-5 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] shadow-sm hover:bg-slate-50 transition">
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Upload model answer (JPEG / PNG)
-            <input
-              type="file"
-              accept="image/jpeg,image/png"
-              multiple
-              className="hidden"
-              onChange={(e) => handleImageUpload(e)}
-            />
-          </label>
-        </div>
+        <Button onClick={() => setShowImport((open) => !open)}>{showImport ? "Hide upload" : "Upload marking script"}</Button>
       </div>
 
-      {validationMsg && (
-        <Alert
-          tone={validationMsg.ok ? "green" : "amber"}
-          title={validationMsg.ok ? "Success" : "Validation"}
-        >
-          {validationMsg.msg}
-        </Alert>
-      )}
-
-      {/* If no questions exist yet, display a clean, centered onboarding card */}
-      {assessment.questions.length === 0 ? (
-        <div className="w-full flex flex-col items-center justify-center rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-12 sm:p-16 text-center shadow-sm">
-          <div className="size-16 rounded-2xl bg-[color:var(--x-primary50,#f0f1ff)] flex items-center justify-center text-[color:var(--x-primary700,#3730a3)] mb-4">
-            <svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+      <div className="grid gap-3 sm:grid-cols-3" aria-label="Marking scheme workflow">
+        {[['1', 'Upload your script', 'Use images, a PDF, or paste your model answer.'], ['2', 'Review each question', 'Check the question, answer and marks.'], ['3', 'Approve the scheme', 'Save a draft, then approve when ready.']].map(([n, title, help]) => (
+          <div key={n} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-sm font-bold text-indigo-700">{n}</span>
+            <div><p className="text-sm font-semibold text-slate-900">{title}</p><p className="mt-1 text-xs leading-5 text-slate-500">{help}</p></div>
           </div>
-          <h2 className="font-['Plus_Jakarta_Sans'] text-2xl font-bold text-[color:var(--x-ink,#111827)]">
-            Create marking scheme
-          </h2>
-          <p className="mt-2 text-sm text-[color:var(--x-secondary,#4b5563)] max-w-md">
-            Start by adding exam questions to define rubric criteria, set mark allocations, and attach JPEG or PNG model answer sheets.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <button
-              onClick={handleAddQuestion}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition cursor-pointer"
-            >
-              + Add first question
-            </button>
-            <label className="cursor-pointer inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-6 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] shadow-sm hover:bg-slate-50 transition">
-              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Upload model answer (JPEG / PNG)
-              <input
-                type="file"
-                accept="image/jpeg,image/png"
-                multiple
-                className="hidden"
-                onChange={(e) => handleImageUpload(e)}
-              />
+        ))}
+      </div>
+
+      <details className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700">Assessment details · {assessment.title || "Untitled assessment"}</summary>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="text-xs font-medium text-slate-600">Assessment title<input value={assessment.title} onChange={(e) => actions.updateAssessment(e.target.value, assessment.course)} className={fieldClass} /></label>
+          <label className="text-xs font-medium text-slate-600">Course<input value={assessment.course} onChange={(e) => actions.updateAssessment(assessment.title, e.target.value)} className={fieldClass} /></label>
+        </div>
+      </details>
+
+      {(showImport || assessment.questions.length === 0) && (
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-base font-semibold text-slate-900">Upload your complete marking script</h2><p className="mt-1 text-sm text-slate-500">Include questions, model answers and marks. AI creates editable rubric drafts for you to review.</p></div>
+          <div className="grid gap-5 p-5 md:grid-cols-[1fr_1.2fr]">
+            <div className="flex flex-col justify-center rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 p-6 text-center">
+              <span className="mx-auto mb-3 flex size-11 items-center justify-center rounded-xl bg-white text-xl text-indigo-600" aria-hidden="true">↑</span>
+              <p className="text-sm font-semibold text-slate-900">
+                {schemeFiles.length === 0
+                  ? "Choose your answer script"
+                  : schemeFiles.length === 1
+                    ? schemeFiles[0].name
+                    : `${schemeFiles.length} image pages selected`}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                {schemeFiles.length > 0 && schemeFiles.every(isImageFile)
+                  ? "Ready for Vision OCR — click Generate questions & rubric"
+                  : "PNG, JPG, PDF, or TXT · up to 10 pages"}
+              </p>
+              <label className="mx-auto mt-4 cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                {readingScheme ? "Reading file…" : schemeFiles.length > 0 ? "Choose other files" : "Browse files"}
+                <input type="file" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.pdf,.txt,application/pdf,text/plain" disabled={readingScheme || generatingRubric} className="hidden" onChange={(e) => { void handleSchemeFiles(e.target.files); e.target.value = ""; }} />
+              </label>
+            </div>
+            <label className="text-xs font-medium text-slate-600">Or paste / review the script text
+              <textarea value={schemeText} onChange={(e) => { setSchemeText(e.target.value); setImportError(""); }} rows={6} aria-label="Full marking scheme text" placeholder={"Q1. Explain encapsulation. (5 marks)\nModel answer: ..."} className={fieldClass} />
+              <span className="mt-2 block font-normal leading-5 text-slate-500">Uploaded images and scanned PDFs are read automatically with Vision OCR. Check generated questions and marks before approval.</span>
             </label>
           </div>
-        </div>
-      ) : (
-        /* Main Rubric Workspace Split Layout (Figma 121:2564) */
-        <div className="flex flex-col gap-6 lg:flex-row items-start">
-          {/* Left: Question Rail (Figma 121:2565) */}
-          <div className="w-full shrink-0 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-4 shadow-sm lg:w-64 lg:sticky lg:top-24 space-y-4">
-            <div className="text-xs font-semibold tracking-wider text-[color:var(--x-secondary,#4b5563)] uppercase px-2 pt-1">
-              QUESTIONS
-            </div>
-
-            <div className="space-y-1">
-              {assessment.questions.map((q) => {
-                const active = q.id === selectedQId;
-                const appR = rubrics.find((r) => r.questionId === q.id && r.approved);
-                return (
-                  <button
-                    key={q.id}
-                    onClick={() => {
-                      setSelectedQId(q.id);
-                      setValidationMsg(null);
-                    }}
-                    className={`w-full flex items-center justify-between h-12 px-4 rounded-xl text-sm font-semibold transition cursor-pointer ${
-                      active
-                        ? "bg-[color:var(--x-primary100,#e0e3ff)] text-[color:var(--x-primary700,#3730a3)]"
-                        : "text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50"
-                    }`}
-                  >
-                    <span>{q.number} · {q.maxMarks} marks</span>
-                    {appR && (
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                        v{appR.version}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={handleAddQuestion}
-              className="w-full h-10 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition cursor-pointer"
-            >
-              + Add Question
-            </button>
-
-          {/* Circular Progress Ring (Figma 15:583) */}
-          <div className="flex flex-col items-center justify-center p-4 border-t border-[color:var(--x-border,#e4e7ef)]">
-            <div className="relative size-36 flex items-center justify-center">
-              <svg className="size-full -rotate-90" viewBox="0 0 160 160">
-                <circle
-                  cx="80"
-                  cy="80"
-                  r="68"
-                  fill="none"
-                  stroke="var(--x-bg,#f5f6fa)"
-                  strokeWidth="12"
-                />
-                <circle
-                  cx="80"
-                  cy="80"
-                  r="68"
-                  fill="none"
-                  stroke={isSumValid ? "var(--x-primary600,#4338ca)" : "#f59e0b"}
-                  strokeWidth="12"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={strokeDashoffset}
-                  strokeLinecap="round"
-                  className="transition-all duration-300"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span className="font-['Plus_Jakarta_Sans'] text-2xl font-bold text-[color:var(--x-ink,#111827)]">
-                  {criteriaSum} / {qMaxMarks}
-                </span>
-                <span className="text-xs text-[color:var(--x-secondary,#4b5563)]">
-                  allocated
-                </span>
-              </div>
-            </div>
-            <div className={`mt-3 text-center text-xs font-semibold ${isSumValid ? "text-[color:var(--x-primary700,#3730a3)]" : "text-amber-600"}`}>
-              {isSumValid ? `Allocated ${criteriaSum} / ${qMaxMarks} marks` : `Discrepancy: ${criteriaSum} of ${qMaxMarks} marks`}
+          <div className="border-t border-slate-100 px-5 py-4">
+            {importError && <p className="mb-3 text-sm text-rose-700" role="alert">{importError}</p>}
+            {generatingRubric && <p className="mb-3 text-sm text-indigo-700" role="status">Reading your script and building marking points. This can take a few minutes.</p>}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <details className="text-xs text-slate-500"><summary className="cursor-pointer">Have a formatted scheme?</summary><p className="mt-2">Use Q1 | Question | 5 and C1 | Marking point | 5 on separate lines.</p><Button size="sm" className="mt-2" onClick={handleImportScheme} disabled={readingScheme || generatingRubric || !schemeText.trim()}>Import formatted text</Button></details>
+              <Button variant="primary" onClick={() => { void handleGenerateRubric(); }} disabled={readingScheme || generatingRubric || (schemeFiles.length === 0 && !schemeText.trim())}>{generatingRubric ? "Creating draft…" : "Generate questions & rubric →"}</Button>
             </div>
           </div>
-        </div>
+        </Card>
+      )}
 
-        {/* Right: Rubric Criteria & Model Answer Workspace (Figma 121:2574) */}
-        {currentQ ? (
-          <div className="flex-1 min-w-0 w-full space-y-6">
-            {/* Header info + Quick Actions */}
-            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-5 sm:p-6 shadow-sm space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <h2 className="font-['Plus_Jakarta_Sans'] text-xl sm:text-2xl font-semibold text-[color:var(--x-ink,#111827)]">
-                    {currentQ.number} · {!isPlaceholderPrompt(currentQ.prompt) ? currentQ.prompt : "Exam Question"}
-                  </h2>
-                  {activeRubric && (
-                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                      Approved v{activeRubric.version}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleSaveDraft}
-                    className="h-9 whitespace-nowrap rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-4 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition cursor-pointer"
-                  >
-                    Save draft
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleApproveRubric}
-                    className={`h-9 whitespace-nowrap rounded-xl px-4 text-xs font-semibold text-white transition cursor-pointer ${
-                      isReadyToApprove
-                        ? "bg-[color:var(--x-primary600,#4338ca)] hover:bg-indigo-700"
-                        : "bg-indigo-400/80 hover:bg-indigo-500"
-                    }`}
-                  >
-                    Approve version {activeRubric ? activeRubric.version + 1 : 1}
-                  </button>
-                </div>
+      {validationMsg && <Alert tone={validationMsg.ok ? "green" : "amber"} title={validationMsg.ok ? "Saved" : "Please check"}>{validationMsg.msg}</Alert>}
+
+      {assessment.questions.length === 0 ? (
+        <div className="py-6 text-center text-sm text-slate-500">Prefer to write your own scheme? <button onClick={handleAddQuestion} className="font-semibold text-indigo-700 underline underline-offset-4">Add a question manually</button></div>
+      ) : (
+        <div className="grid items-start gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+          <Card className="lg:sticky lg:top-24">
+            <div className="border-b border-slate-100 px-4 py-4"><h2 className="text-sm font-semibold text-slate-900">Questions <span className="ml-1 text-slate-400">{assessment.questions.length}</span></h2><p className="mt-1 text-xs text-slate-500">Select a question to edit its rubric.</p></div>
+            <div className="space-y-1 p-2">{assessment.questions.map((q) => {
+              const approved = rubrics.filter((r) => r.questionId === q.id && r.approved).sort((a,b) => b.version-a.version)[0];
+              return <button key={q.id} aria-pressed={q.id === selectedQId} onClick={() => { if (currentQ) actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages, subquestions); setSelectedQId(q.id); setOcrMessage(null); }} className={`w-full rounded-lg px-3 py-3 text-left transition ${q.id === selectedQId ? "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200" : "text-slate-700 hover:bg-slate-50"}`}>
+                <span className="flex items-center justify-between text-sm font-semibold"><span>{q.number}</span><span className="text-xs">{q.maxMarks} marks</span></span>
+                <span className="mt-1 block truncate text-xs opacity-75">{isPlaceholderPrompt(q.prompt) ? "Add question text" : q.prompt}</span>
+                <span className={`mt-2 block text-[11px] ${approved ? "text-emerald-700" : "text-slate-500"}`}>{approved ? `Approved · v${approved.version}` : "Draft · review required"}</span>
+              </button>;
+            })}</div>
+            <div className="border-t border-slate-100 p-3"><Button className="w-full" onClick={handleAddQuestion}>+ Add question</Button></div>
+          </Card>
+          {currentQ && <div className="min-w-0 space-y-5">
+            <Card className="p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold text-slate-900">{currentQ.number} · Question details</h2><Badge tone={activeRubric ? "green" : "amber"}>{activeRubric ? `Approved v${activeRubric.version}` : "Draft"}</Badge></div>
+              <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
+                <label className="text-xs font-medium text-slate-600">Question text<textarea rows={3} value={isPlaceholderPrompt(currentQ.prompt) ? "" : currentQ.prompt} onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)} placeholder="Enter the full question, including subquestions…" className={fieldClass} /></label>
+                <label className="text-xs font-medium text-slate-600">Total marks<input type="number" step="0.5" min="0.5" value={currentQ.maxMarks} onChange={(e) => { const val = parseFloat(e.target.value); if (val >= 0.5) actions.updateQuestion(currentQ.id, currentQ.prompt, val); }} className={fieldClass} /></label>
               </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-                <div className="flex-1 min-w-0">
-                  <label className="block text-xs font-medium text-[color:var(--x-secondary,#4b5563)] mb-1">
-                    Question prompt / topic
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={isPlaceholderPrompt(currentQ.prompt) ? "" : currentQ.prompt}
-                      onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)}
-                      placeholder="Enter question here..."
-                      className="w-full h-10 rounded-xl border border-slate-300 bg-slate-50/40 pl-3.5 pr-9 text-sm text-[color:var(--x-ink,#111827)] placeholder:text-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:outline-none transition"
-                    />
-                    <span
-                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"
-                      aria-hidden="true"
-                    >
-                      ✎
-                    </span>
-                  </div>
-                </div>
-                <div className="w-full sm:w-32 shrink-0">
-                  <label className="block text-xs font-medium text-[color:var(--x-secondary,#4b5563)] mb-1">
-                    Total marks
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0.5"
-                    value={currentQ.maxMarks}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      if (!Number.isNaN(val) && val >= 0.5) {
-                        actions.updateQuestion(currentQ.id, currentQ.prompt, val);
-                      }
-                    }}
-                    className="w-full h-10 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 font-['Plus_Jakarta_Sans'] text-sm font-semibold text-[color:var(--x-ink,#111827)] text-center focus:border-indigo-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-
+            </Card>
             {/* Supplemental Model Answer Section — Directly at top so uploaded images appear immediately in viewport */}
-            <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-5 sm:p-6 shadow-sm space-y-4">
+            <details className="rounded-xl border border-slate-200 bg-white p-5">
+              <summary className="cursor-pointer text-sm font-semibold text-indigo-700">Model answer & reference pages (optional)</summary>
+              <div className="mt-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
                   <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
-                    Supplemental Model Answer &amp; Notes
+                    Expected answer
                   </h3>
                   <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">
-                    Guides AI evaluators with reference handwriting and expected key points.
+                    Check the answer text or attach a reference page for this question.
                   </p>
                 </div>
                 <label className="cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3.5 py-2 text-xs font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 shadow-xs transition">
-                  + Upload Reference Image
+                  + Upload Reference PDF or Image
                   <input
                     type="file"
-                    accept="image/jpeg,image/png"
+                    accept="application/pdf,image/jpeg,image/png,.pdf"
                     multiple
                     className="hidden"
                     onChange={(e) => handleImageUpload(e)}
@@ -506,7 +592,7 @@ function RubricContent() {
                 <div className={`flex flex-col gap-3 min-w-0 ${modelImages.length > 0 ? "h-[380px]" : "min-h-[210px]"}`}>
                   <div className="flex items-center justify-between h-6 shrink-0">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                      Handwritten Model Answer
+                      Reference pages
                     </span>
                     {modelImages.length > 0 && (
                       <span className="text-[11px] font-medium text-slate-500">
@@ -517,13 +603,13 @@ function RubricContent() {
                   {modelImages.length === 0 ? (
                     <div className="flex-1 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 text-center">
                       <p className="text-xs text-slate-500">
-                        Upload a photo of your handwritten model answer sheet.
+                        Upload a PDF, JPEG, or PNG model answer for this question.
                       </p>
                       <label className="mt-3 cursor-pointer rounded-xl bg-white border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs">
                         Browse files
                         <input
                           type="file"
-                          accept="image/jpeg,image/png"
+                          accept="application/pdf,image/jpeg,image/png,.pdf"
                           multiple
                           className="hidden"
                           onChange={(e) => handleImageUpload(e)}
@@ -590,6 +676,8 @@ function RubricContent() {
                           </button>
                         </div>
                       </div>
+                      {isExtractingOcr && <p className="text-xs text-slate-600" role="status">Gemini is reading this page. A dense scan can take a few minutes.</p>}
+                      {ocrMessage && <p className={`text-xs ${ocrMessage.ok ? "text-emerald-700" : "text-rose-700"}`} role="status">{ocrMessage.text}</p>}
                       <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
                         <img
                           src={modelImages[selectedImgIdx]?.originalUrl}
@@ -606,7 +694,7 @@ function RubricContent() {
                 <div className={`flex flex-col gap-3 min-w-0 ${modelImages.length > 0 ? "h-[380px]" : "min-h-[210px]"}`}>
                   <div className="flex items-center justify-between h-6 shrink-0">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                      Supplemental Notes &amp; Points
+                      Expected answer / key points
                     </span>
                   </div>
                   <textarea
@@ -617,163 +705,35 @@ function RubricContent() {
                   />
                 </div>
               </div>
-            </div>
-
-            {/* Criteria Cards List */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
-                  Analytic Marking Criteria
-                </h3>
-                <span className="text-xs text-[color:var(--x-secondary,#4b5563)]">
-                  Optional model answer supports these criteria; criteria marks must total {qMaxMarks}.
-                </span>
               </div>
-              {criteria.map((c, idx) => (
-                <div
-                  key={c.id || idx}
-                  className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className="shrink-0">
-                        <div className="text-xs font-normal text-[color:var(--x-muted,#6b7280)]">ID</div>
-                        <div className="font-mono text-sm font-semibold text-[color:var(--x-primary700,#3730a3)]">
-                          {c.id || `C${idx + 1}`}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
-                          Criterion / accepted coverage
-                        </div>
-                        <input
-                          type="text"
-                          value={c.description}
-                          onChange={(e) => {
-                            const next = [...criteria];
-                            next[idx].description = e.target.value;
-                            setCriteria(next);
-                          }}
-                          placeholder={
-                            idx === 0
-                              ? "Enter criterion description (e.g. Key definition / core principle)..."
-                              : "Enter criterion description (e.g. Explanation / technical justification)..."
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-[color:var(--x-ink,#111827)] placeholder:font-normal placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
-                        />
-                      </div>
-                    </div>
+            </details>
 
-                    <div className="flex items-center gap-4 shrink-0">
-                      <div>
-                        <div className="text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
-                          Maximum
-                        </div>
-                        <input
-                          type="number"
-                          step="0.5"
-                          min="0.5"
-                          value={c.maxMarks}
-                          onChange={(e) => {
-                            const next = [...criteria];
-                            const val = parseFloat(e.target.value) || 0;
-                            next[idx].maxMarks = val;
-                            // Update allowed partial credit steps
-                            next[idx].allowedPartialCredits = Array.from({ length: Math.floor(val) + 1 }, (_, i) => i);
-                            setCriteria(next);
-                          }}
-                          className="mt-1 w-20 rounded-lg border border-slate-200 px-3 py-1.5 font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)] text-center focus:border-indigo-600 focus:outline-none"
-                        />
-                      </div>
-                      {criteria.length > 1 && (
-                        <button
-                          onClick={() => {
-                            setCriteria(criteria.filter((_, i) => i !== idx));
-                          }}
-                          className="text-xs text-red-500 hover:text-red-700 pt-5 cursor-pointer"
-                          title="Remove criterion"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Partial Credit Allowed Marks */}
-                  <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-100">
-                    <span className="text-xs font-medium text-[color:var(--x-secondary,#4b5563)]">
-                      Partial credit:
-                    </span>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {c.allowedPartialCredits.map((m) => (
-                        <span
-                          key={m}
-                          className="flex h-10 w-12 items-center justify-center rounded-xl bg-[color:var(--x-primary50,#f0f1ff)] text-sm font-semibold text-[color:var(--x-primary700,#3730a3)]"
-                        >
-                          {m}
-                        </span>
-                      ))}
-                    </div>
-                    <span className="font-mono text-xs text-[color:var(--x-secondary,#4b5563)] ml-auto">
-                      {c.allowedPartialCredits.join(" / ")}
-                    </span>
-                  </div>
-                </div>
-              ))}
+
+
+            <div className="flex items-center justify-between gap-3"><div><h3 className="text-base font-semibold text-slate-900">Answer & mark breakdown</h3><p className="mt-1 text-xs text-slate-500">Review the original answer, then its marks and alternatives for each subquestion.</p></div><Badge tone={isSumValid ? "green" : "amber"}>{criteriaSum} / {qMaxMarks} marks</Badge></div>
+            {!subquestions.length && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">This earlier draft has no separate original answers for subquestions. Regenerate from the marking script to organise (a), (b), (c) automatically. Your current answer and points are shown below.</p>}
+            {(subquestions.length ? subquestions : [{id:"main",label:currentQ.number,prompt:currentQ.prompt,originalAnswer:modelAnswerText,maxMarks:qMaxMarks}]).map(part => <RubricSubquestionEditor
+              key={`${selectedQId}-${part.id}`}
+              part={part}
+              structured={subquestions.length > 0}
+              points={subquestions.length ? criteria.filter(c=>c.subquestionId===part.id) : criteria}
+              onPartChange={changes => { if (subquestions.length) setSubquestions(subquestions.map(item=>item.id===part.id?{...item,...changes}:item)); else { if (changes.originalAnswer!==undefined) setModelAnswerText(changes.originalAnswer); if(changes.prompt!==undefined || changes.maxMarks!==undefined) actions.updateQuestion(currentQ.id,changes.prompt??currentQ.prompt,changes.maxMarks??currentQ.maxMarks); } }}
+              onPointChange={(id,changes)=>setCriteria(criteria.map(item=>item.id===id?{...item,...changes}:item))}
+              onRemove={id=>setCriteria(criteria.filter(item=>item.id!==id))}
+              onAdd={()=>setCriteria([...criteria,{id:`C${Math.max(0,...criteria.map(c=>Number(c.id.replace(/\D/g,''))||0))+1}`,subquestionId:subquestions.length?part.id:undefined,sourceExcerpt:"",description:"",maxMarks:1,allowedPartialCredits:[0,1],acceptedAlternatives:[],scoringGuide:[{marks:0,description:""},{marks:1,description:""}]}])}
+            />)}
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <div><p className={`text-sm font-medium ${isReadyToApprove ? "text-emerald-700" : "text-slate-700"}`}>{approvalHint}</p><p className="mt-1 text-xs text-slate-500">Approval makes this version available for evaluation.</p>{validationMsg && <p role="status" className={`mt-2 text-xs ${validationMsg.ok ? "text-emerald-700" : "text-rose-700"}`}>{validationMsg.msg}</p>}</div>
+              <div className="flex shrink-0 gap-2"><Button onClick={handleSaveDraft}>Save draft</Button><Button variant="primary" onClick={handleApproveRubric} disabled={!isReadyToApprove}>Approve {currentQ.number}</Button></div>
             </div>
-
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setCriteria([
-                  ...criteria,
-                  {
-                    id: `C${criteria.length + 1}`,
-                    description: "",
-                    maxMarks: 1,
-                    allowedPartialCredits: [0, 1],
-                    acceptedAlternatives: [],
-                  },
-                ]);
-              }}
-            >
-              + Add Criterion
-            </Button>
-
-            {/* Bottom Action Bar (Figma 121:2582) */}
-            <div className="flex items-center justify-end gap-3 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-5 shadow-sm">
-              <button
-                type="button"
-                onClick={handleSaveDraft}
-                className="h-12 whitespace-nowrap rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-6 text-sm font-semibold text-[color:var(--x-primary700,#3730a3)] hover:bg-slate-50 transition cursor-pointer"
-              >
-                Save draft
-              </button>
-              <button
-                type="button"
-                onClick={handleApproveRubric}
-                className={`h-12 whitespace-nowrap rounded-xl px-6 text-sm font-semibold text-white transition cursor-pointer ${
-                  isReadyToApprove
-                    ? "bg-[color:var(--x-primary600,#4338ca)] hover:bg-indigo-700"
-                    : "bg-indigo-400/80 hover:bg-indigo-500"
-                }`}
-              >
-                Approve version {activeRubric ? activeRubric.version + 1 : 1}
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    )}
+          </div>}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function RubricPage() {
-  return (
-    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">Loading marking scheme...</div>}>
-      <RubricContent />
-    </Suspense>
-  );
+  return <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">Loading marking scheme…</div>}><RubricContent /></Suspense>;
 }

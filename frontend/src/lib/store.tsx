@@ -5,7 +5,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
-import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
+import type { ImportedQuestion } from "./marking-scheme-import";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
 const ACTOR = "Dr. S. Silva";
@@ -38,11 +39,31 @@ type Ctx = {
   logout: () => Promise<void>;
   mutate: (fn: (d: State) => void) => void;
   actions: ReturnType<typeof makeActions>;
+  flushPersistence: () => { ok: boolean; error?: string };
 };
 const StoreCtx = createContext<Ctx | null>(null);
 
 function audit(d: State, action: string, detail: string) {
   d.audit.unshift({ id: uid("au"), at: nowIso(), actor: ACTOR, action, detail });
+}
+
+/** 81 words for Objects and classes, Encapsulation, and Inheritance. */
+function feedbackFromCriteria(criteria: StudentCriterionMark[]): string {
+  const awarded = criteria.reduce((sum, row) => sum + row.awarded, 0);
+  const max = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+  const sentences = criteria.map((row) => {
+    if (row.status === "COVERED") {
+      return `Your answer included ${row.description}, and that point was fully covered.`;
+    }
+    if (row.status === "PARTIAL") {
+      return `${row.description} was only partly covered: some of the expected detail is present, but not enough to award the full mark for that point.`;
+    }
+    return `${row.description} was missing, so that point received no marks.`;
+  });
+  const parts = criteria.map((row) => `${row.awarded} out of ${row.maxMark} for ${row.description}`);
+  const breakdown =
+    parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  return `${sentences.join(" ")} The released mark for this question is ${awarded} out of ${max}, which is the sum of ${breakdown}.`;
 }
 
 function makeActions(mutate: Ctx["mutate"], getState: () => State) {
@@ -51,6 +72,36 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   const qnum = (d: State, qid: string) => d.assessment.questions.find((q) => q.id === qid)?.number ?? qid;
 
   return {
+    updateAssessment: (title: string, course: string) =>
+      mutate((d) => {
+        d.assessment.title = title;
+        d.assessment.course = course;
+      }),
+
+    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean }) => {
+      const state = getState();
+      if (state.scripts.length || state.answers.length || state.rubrics.some((r) => r.approved)) {
+        return { ok: false, error: "This assessment has uploaded student scripts or approved rubrics. Its questions cannot be replaced by an import." };
+      }
+      if (!options?.replaceDrafts && (state.rubrics.length || state.assessment.questions.some((q) => !isPlaceholderPrompt(q.prompt)))) {
+        return { ok: false, error: "Review and confirm replacing the existing question and rubric drafts to import this scheme." };
+      }
+      if (!items.length) return { ok: false, error: "No questions were found to import." };
+      mutate((d) => {
+        d.assessment.questions = items.map((item) => item.question);
+        d.rubrics = items.map((item) => ({
+          version: 1,
+          questionId: item.question.id,
+          criteria: item.criteria,
+          subquestions: item.subquestions,
+          modelAnswerText: item.modelAnswerText,
+          approved: false,
+        }));
+        audit(d, "IMPORT_MARKING_SCHEME", `Imported ${items.length} question drafts${options?.replaceDrafts ? "; replaced previous drafts after confirmation" : ""}`);
+      });
+      return { ok: true };
+    },
+
     reset: async () => {
       localStorage.removeItem(KEY);
       localStorage.removeItem("m1-enterprise-state-v3");
@@ -69,7 +120,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     addQuestion: () =>
       mutate((d) => {
-        const nextIdx = d.assessment.questions.length + 1;
+        const nextIdx = Math.max(0, ...d.assessment.questions.map((q) => Number(q.number.slice(1)) || 0)) + 1;
         d.assessment.questions.push({
           id: `q${nextIdx}`,
           number: `Q${nextIdx}`,
@@ -126,6 +177,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       criteria: RubricCriterion[],
       modelAnswerText?: string,
       modelAnswerImages?: ModelAnswerImage[],
+      subquestions?: RubricSubquestion[],
     ) =>
       mutate((d) => {
         if (!d.rubrics) d.rubrics = [];
@@ -142,6 +194,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         r.criteria = criteria;
         if (modelAnswerText !== undefined) r.modelAnswerText = modelAnswerText;
         if (modelAnswerImages !== undefined) r.modelAnswerImages = modelAnswerImages;
+        if (subquestions !== undefined) r.subquestions = subquestions;
       }),
 
     approveRubric: (
@@ -149,6 +202,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       criteria: RubricCriterion[],
       modelAnswerText?: string,
       modelAnswerImages?: ModelAnswerImage[],
+      subquestions?: RubricSubquestion[],
     ) => {
       let result: { ok: boolean; error?: string } = { ok: false, error: "" };
       mutate((d) => {
@@ -172,6 +226,21 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           };
           return;
         }
+        if (criteria.some((c) => !c.acceptedAlternatives.some((answer) => answer.trim()) ||
+          !c.scoringGuide || c.scoringGuide.length !== c.allowedPartialCredits.length ||
+          new Set(c.scoringGuide.map((entry) => entry.marks)).size !== c.scoringGuide.length ||
+          c.scoringGuide.some((entry) => !c.allowedPartialCredits.includes(entry.marks) || !entry.description.trim()))) {
+          result = { ok: false, error: "Add valid alternative answers and explain every allowed score for each marking point before approval." };
+          return;
+        }
+        if (new Set(criteria.map((c) => c.id)).size !== criteria.length || criteria.some((c) =>
+          !Number.isFinite(c.maxMarks) || c.maxMarks < 0 ||
+          !c.allowedPartialCredits.includes(0) || !c.allowedPartialCredits.includes(c.maxMarks) ||
+          c.allowedPartialCredits.some((mark) => !Number.isFinite(mark) || mark < 0 || mark > c.maxMarks)
+        )) {
+          result = { ok: false, error: "Criterion IDs must be unique and allowed marks must include 0 and the criterion maximum within bounds." };
+          return;
+        }
         // Validate REQ-12: The system shall reject approval when the criterion maxima do not sum to the question maximum
         const sum = Number(criteria.reduce((acc, c) => acc + (Number(c.maxMarks) || 0), 0).toFixed(2));
         const qMax = Number(Number(q.maxMarks).toFixed(2));
@@ -183,6 +252,12 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           return;
         }
 
+        if (subquestions?.length && (
+          new Set(subquestions.map(part => part.id)).size !== subquestions.length ||
+          Math.abs(subquestions.reduce((sum, part) => sum + part.maxMarks, 0) - qMax) > 0.001 ||
+          subquestions.some(part => !part.originalAnswer.trim() || !part.prompt.trim() || !Number.isFinite(part.maxMarks) || part.maxMarks <= 0 || Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks, 0) - part.maxMarks) > 0.001) ||
+          criteria.some(c => !subquestions.some(part => part.id === c.subquestionId) || !c.sourceExcerpt?.trim())
+        )) { result = {ok:false, error:"Each subquestion needs its original answer and a mark breakdown matching its full marks."}; return; }
         const approvedVersions = d.rubrics.filter((x) => x.questionId === questionId && x.approved);
         const nextVer = approvedVersions.length + 1;
 
@@ -192,6 +267,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           criteria,
           modelAnswerText,
           modelAnswerImages,
+          subquestions,
           approved: true,
           approvedAt: nowIso(),
           approvedBy: ACTOR,
@@ -671,9 +747,20 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       evidenceSpanIds?: string[],
     ) =>
       mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const released = (d.studentResults?.[id] ?? []).some((r) => r.questionId === questionId);
+        if (!released) return;
+        if (
+          d.reviewRequests.some(
+            (r) => r.studentId === id && r.questionId === questionId && r.status === "PENDING_TEACHER_REVIEW",
+          )
+        )
+          return;
+
         d.reviewRequests.unshift({
           id: uid("req"),
-          studentId,
+          studentId: id,
           questionId,
           questionNumber,
           issueType,
@@ -685,8 +772,116 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         audit(
           d,
           "APPEAL",
-          `Student ${studentId} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
+          `Student ${id} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
         );
+      }),
+
+    resolveReviewRequest: (requestId: string, note: string) =>
+      mutate((d) => {
+        const id = requestId.trim();
+        const text = note.trim();
+        if (!id || !text) return;
+        const req = d.reviewRequests.find((r) => r.id === id);
+        if (!req || req.status !== "PENDING_TEACHER_REVIEW") return;
+        req.status = "RESOLVED";
+        req.teacherResolutionNote = text;
+        audit(
+          d,
+          "RESOLVE",
+          `Student ${req.studentId} review for ${req.questionNumber} resolved; mark was not changed`,
+        );
+      }),
+
+    reviseReleasedMark: (studentId: string, awardedMarks: number) =>
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const q = d.assessment.questions[0];
+        if (!q) return;
+        const rows = (d.studentResults?.[id] ?? []).filter((r) => r.questionId === q.id);
+        if (!rows.length) return;
+        const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+        if (
+          !Number.isInteger(awardedMarks) ||
+          awardedMarks < 0 ||
+          awardedMarks > latest.maxMarks ||
+          awardedMarks === latest.awardedMarks
+        ) {
+          return;
+        }
+        const next = structuredClone(latest);
+        next.resultVersion = latest.resultVersion + 1;
+        next.awardedMarks = awardedMarks;
+        next.releasedAt = nowIso();
+        next.feedbackText = `The released mark for this question is now ${awardedMarks} out of ${latest.maxMarks}.`;
+        (d.studentResults![id] ??= []).push(next);
+        audit(
+          d,
+          "MARK_REVISED",
+          `Student ${id} ${latest.questionNumber}: mark ${latest.awardedMarks} → ${awardedMarks}, resultVersion ${next.resultVersion}`,
+        );
+      }),
+
+    releaseResult: (
+      studentId: string,
+      statuses: Record<string, "" | "COVERED" | "PARTIAL" | "MISSING">,
+    ) =>
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const q = d.assessment.questions[0];
+        if (!q) return;
+        if ((d.studentResults?.[id] ?? []).some((r) => r.questionId === q.id)) return;
+
+        const rubric = d.rubrics
+          .filter((r) => r.questionId === q.id && r.approved)
+          .sort((a, b) => b.version - a.version)[0];
+        if (!rubric?.criteria.length) return;
+
+        const criteria: StudentCriterionMark[] = [];
+        for (const rc of rubric.criteria) {
+          const status = statuses[rc.id];
+          if (status !== "COVERED" && status !== "PARTIAL" && status !== "MISSING") return;
+
+          let awarded: number;
+          if (status === "COVERED") {
+            awarded = rc.maxMarks;
+          } else if (status === "MISSING") {
+            awarded = 0;
+          } else {
+            const partial = rc.allowedPartialCredits
+              .filter((m) => m > 0 && m < rc.maxMarks)
+              .sort((a, b) => b - a)[0];
+            if (partial === undefined) return;
+            awarded = partial;
+          }
+
+          criteria.push({
+            criterionId: rc.id,
+            description: rc.description,
+            awarded,
+            maxMark: rc.maxMarks,
+            status,
+          });
+        }
+
+        if (!d.studentResults) d.studentResults = {};
+        const awardedMarks = criteria.reduce((sum, row) => sum + row.awarded, 0);
+        const maxMarks = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+        (d.studentResults[id] ??= []).push({
+          questionId: q.id,
+          questionNumber: q.number,
+          questionPrompt: q.prompt,
+          maxMarks,
+          awardedMarks,
+          resultVersion: 1,
+          releasedAt: nowIso(),
+          transcriptVersion: 1,
+          approvedTranscript: "",
+          feedbackText: feedbackFromCriteria(criteria),
+          criteria,
+        });
+        audit(d, "RELEASE", `Released Q1 to student ${id}`);
       }),
   };
 }
@@ -700,6 +895,8 @@ function serialise(s: State): string {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>(() => buildSeed());
+  const [ready, setReady] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const ref = useRef<State>(state);
   ref.current = state;
@@ -757,12 +954,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       let s: State;
       try {
         localStorage.removeItem("m1-enterprise-state-v3");
         localStorage.removeItem("m1-enterprise-state-v2");
-        await clearBlobs().catch(() => undefined);
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
         if (!s.rubrics) {
@@ -819,34 +1016,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Not signed in
       }
+      if (cancelled) return;
+      ref.current = s;
       setState(s);
+      setReady(true);
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const flushPersistence = useCallback(() => {
+    try {
+      localStorage.setItem(KEY, serialise(ref.current));
+      setStorageError(null);
+      return { ok: true };
+    } catch {
+      const error = "Changes could not be saved in this browser. Browser storage may be full or disabled. Keep this page open and reduce large reference attachments or enable site storage before retrying.";
+      setStorageError(error);
+      return { ok: false, error };
+    }
   }, []);
 
   useEffect(() => {
-    if (!state) return;
-    try {
-      localStorage.setItem(KEY, serialise(state));
-    } catch {
-      /* quota exceeded - demo keeps working in memory */
-    }
-  }, [state]);
+    if (!ready) return;
+    flushPersistence();
+  }, [state, ready, flushPersistence]);
 
   const mutate = useCallback((fn: (d: State) => void) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const d = structuredClone(prev);
-      fn(d);
-      return d;
-    });
+    const d = structuredClone(ref.current);
+    fn(d);
+    ref.current = d;
+    setState(d);
   }, []);
 
   const actionsRef = useRef<ReturnType<typeof makeActions> | null>(null);
   if (!actionsRef.current) actionsRef.current = makeActions(mutate, () => ref.current);
 
   return (
-    <StoreCtx.Provider value={{ state, user, login, register, logout, mutate, actions: actionsRef.current }}>
-      {children}
+    <StoreCtx.Provider value={{ state, user, login, register, logout, mutate, actions: actionsRef.current, flushPersistence }}>
+      {storageError && <div role="alert" className="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-800">{storageError}</div>}
+      {ready ? children : <div role="status" className="p-8 text-center text-sm text-slate-500">Loading saved assessment…</div>}
     </StoreCtx.Provider>
   );
 }

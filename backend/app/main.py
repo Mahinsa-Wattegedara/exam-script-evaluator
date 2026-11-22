@@ -23,6 +23,8 @@ from app.schemas.module1 import (
     StructuredOcrRequest,
     StructuredOcrResponse,
 )
+from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
+from app.services.rubric_draft import create_rubric_draft
 from app.services.crypto_service import verify_session_jwt
 from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
 
@@ -47,6 +49,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
+
+
+@app.post("/api/v1/module2/rubric/draft-from-script", response_model=RubricDraftResponse)
+async def draft_rubric_from_script(payload: RubricDraftRequest) -> RubricDraftResponse:
+    from fastapi import HTTPException
+
+    if not payload.pages and not payload.text.strip():
+        raise HTTPException(status_code=422, detail="Upload PDF pages or provide document text.")
+    try:
+        return await create_rubric_draft(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Rubric draft generation failed: {type(exc).__name__}") from exc
 
 
 @app.get("/health")
