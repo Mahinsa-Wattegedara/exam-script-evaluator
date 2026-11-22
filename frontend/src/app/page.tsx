@@ -53,6 +53,7 @@ export default function Overview() {
   const { state, user, actions } = useStore();
   const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
   const [releaseStudentId, setReleaseStudentId] = useState("245001K");
+  const [newReleasedMark, setNewReleasedMark] = useState("");
 
   if (user?.role === "ADMIN") {
     return <AdminDashboard />;
@@ -213,6 +214,24 @@ export default function Overview() {
             className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
           >
             Release
+          </button>
+          <label className="flex items-center gap-2 text-sm text-[color:var(--x-secondary,#4b5563)]">
+            <span className="font-medium whitespace-nowrap">New mark</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={newReleasedMark}
+              onChange={(e) => setNewReleasedMark(e.target.value)}
+              className="h-12 w-24 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => actions.reviseReleasedMark(releaseStudentId, Number(newReleasedMark))}
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+          >
+            Update released mark
           </button>
           <Link
             href="/upload"

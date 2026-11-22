@@ -785,6 +785,36 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         );
       }),
 
+    reviseReleasedMark: (studentId: string, awardedMarks: number) =>
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const q = d.assessment.questions[0];
+        if (!q) return;
+        const rows = (d.studentResults?.[id] ?? []).filter((r) => r.questionId === q.id);
+        if (!rows.length) return;
+        const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+        if (
+          !Number.isInteger(awardedMarks) ||
+          awardedMarks < 0 ||
+          awardedMarks > latest.maxMarks ||
+          awardedMarks === latest.awardedMarks
+        ) {
+          return;
+        }
+        const next = structuredClone(latest);
+        next.resultVersion = latest.resultVersion + 1;
+        next.awardedMarks = awardedMarks;
+        next.releasedAt = nowIso();
+        next.feedbackText = `The released mark for this question is now ${awardedMarks} out of ${latest.maxMarks}.`;
+        (d.studentResults![id] ??= []).push(next);
+        audit(
+          d,
+          "MARK_REVISED",
+          `Student ${id} ${latest.questionNumber}: mark ${latest.awardedMarks} → ${awardedMarks}, resultVersion ${next.resultVersion}`,
+        );
+      }),
+
     releaseResult: (studentId: string) =>
       mutate((d) => {
         const id = studentId.trim();
