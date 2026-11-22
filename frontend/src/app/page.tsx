@@ -54,6 +54,9 @@ export default function Overview() {
   const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
   const [releaseStudentId, setReleaseStudentId] = useState("245001K");
   const [newReleasedMark, setNewReleasedMark] = useState("");
+  const [criterionStatus, setCriterionStatus] = useState<
+    Record<string, "" | "COVERED" | "PARTIAL" | "MISSING">
+  >({});
 
   if (user?.role === "ADMIN") {
     return <AdminDashboard />;
@@ -70,6 +73,13 @@ export default function Overview() {
   const approvedCount = count((s) => s === "READY_FOR_AI");
   const isReleased = Object.keys(state.studentResults || {}).length > 0;
   const pendingReviews = state.reviewRequests.filter((r) => r.status === "PENDING_TEACHER_REVIEW");
+
+  const q1 = state.assessment.questions[0];
+  const approvedQ1Rubric = q1
+    ? state.rubrics
+        .filter((r) => r.questionId === q1.id && r.approved)
+        .sort((a, b) => b.version - a.version)[0]
+    : undefined;
 
   // Dynamic Pipeline Stage Tracking
   const hasScheme = (state.rubrics?.length ?? 0) > 0 && state.rubrics.some((r) => r.approved);
@@ -210,8 +220,17 @@ export default function Overview() {
           </label>
           <button
             type="button"
-            onClick={() => actions.releaseResult(releaseStudentId)}
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+            onClick={() => actions.releaseResult(releaseStudentId, criterionStatus)}
+            disabled={
+              !approvedQ1Rubric?.criteria.length ||
+              approvedQ1Rubric.criteria.some(
+                (c) =>
+                  criterionStatus[c.id] !== "COVERED" &&
+                  criterionStatus[c.id] !== "PARTIAL" &&
+                  criterionStatus[c.id] !== "MISSING",
+              )
+            }
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50"
           >
             Release
           </button>
@@ -243,6 +262,43 @@ export default function Overview() {
             Create assessment
           </Link>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+          Marking scheme
+        </div>
+        {!approvedQ1Rubric ? (
+          <p className="mt-4 text-sm text-[color:var(--x-secondary,#4b5563)]">The marking scheme is not approved yet.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-[color:var(--x-border,#e4e7ef)]">
+            {approvedQ1Rubric.criteria.map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 text-sm text-[color:var(--x-ink,#111827)]"
+              >
+                <span>
+                  {c.description} · {c.maxMarks}
+                </span>
+                <select
+                  value={criterionStatus[c.id] ?? ""}
+                  onChange={(e) =>
+                    setCriterionStatus((prev) => ({
+                      ...prev,
+                      [c.id]: e.target.value as "" | "COVERED" | "PARTIAL" | "MISSING",
+                    }))
+                  }
+                  className="h-10 min-w-[10rem] rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+                >
+                  <option value="">Choose status</option>
+                  <option value="COVERED">Covered</option>
+                  <option value="PARTIAL">Partial</option>
+                  <option value="MISSING">Missing</option>
+                </select>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">

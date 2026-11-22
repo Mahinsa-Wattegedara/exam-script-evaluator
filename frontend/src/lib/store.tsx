@@ -750,6 +750,12 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         if (!id) return;
         const released = (d.studentResults?.[id] ?? []).some((r) => r.questionId === questionId);
         if (!released) return;
+        if (
+          d.reviewRequests.some(
+            (r) => r.studentId === id && r.questionId === questionId && r.status === "PENDING_TEACHER_REVIEW",
+          )
+        )
+          return;
 
         d.reviewRequests.unshift({
           id: uid("req"),
@@ -815,33 +821,65 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         );
       }),
 
-    releaseResult: (studentId: string) =>
+    releaseResult: (
+      studentId: string,
+      statuses: Record<string, "" | "COVERED" | "PARTIAL" | "MISSING">,
+    ) =>
       mutate((d) => {
         const id = studentId.trim();
         if (!id) return;
         const q = d.assessment.questions[0];
         if (!q) return;
+        if ((d.studentResults?.[id] ?? []).some((r) => r.questionId === q.id)) return;
+
+        const rubric = d.rubrics
+          .filter((r) => r.questionId === q.id && r.approved)
+          .sort((a, b) => b.version - a.version)[0];
+        if (!rubric?.criteria.length) return;
+
+        const criteria: StudentCriterionMark[] = [];
+        for (const rc of rubric.criteria) {
+          const status = statuses[rc.id];
+          if (status !== "COVERED" && status !== "PARTIAL" && status !== "MISSING") return;
+
+          let awarded: number;
+          if (status === "COVERED") {
+            awarded = rc.maxMarks;
+          } else if (status === "MISSING") {
+            awarded = 0;
+          } else {
+            const partial = rc.allowedPartialCredits
+              .filter((m) => m > 0 && m < rc.maxMarks)
+              .sort((a, b) => b - a)[0];
+            if (partial === undefined) return;
+            awarded = partial;
+          }
+
+          criteria.push({
+            criterionId: rc.id,
+            description: rc.description,
+            awarded,
+            maxMark: rc.maxMarks,
+            status,
+          });
+        }
+
         if (!d.studentResults) d.studentResults = {};
-        const criteria: StudentCriterionMark[] = [
-          { criterionId: "C1", description: "Objects and classes", awarded: 2, maxMark: 2, status: "COVERED" },
-          { criterionId: "C2", description: "Encapsulation", awarded: 1, maxMark: 2, status: "PARTIAL" },
-          { criterionId: "C3", description: "Inheritance", awarded: 0, maxMark: 1, status: "MISSING" },
-        ];
-        d.studentResults[id] = [
-          {
-            questionId: q.id,
-            questionNumber: q.number,
-            questionPrompt: q.prompt,
-            maxMarks: 5,
-            awardedMarks: 3,
-            resultVersion: 1,
-            releasedAt: nowIso(),
-            transcriptVersion: 1,
-            approvedTranscript: "",
-            feedbackText: feedbackFromCriteria(criteria),
-            criteria,
-          },
-        ];
+        const awardedMarks = criteria.reduce((sum, row) => sum + row.awarded, 0);
+        const maxMarks = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+        (d.studentResults[id] ??= []).push({
+          questionId: q.id,
+          questionNumber: q.number,
+          questionPrompt: q.prompt,
+          maxMarks,
+          awardedMarks,
+          resultVersion: 1,
+          releasedAt: nowIso(),
+          transcriptVersion: 1,
+          approvedTranscript: "",
+          feedbackText: feedbackFromCriteria(criteria),
+          criteria,
+        });
         audit(d, "RELEASE", `Released Q1 to student ${id}`);
       }),
   };

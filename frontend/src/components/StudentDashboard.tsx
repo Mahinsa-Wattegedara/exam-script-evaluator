@@ -51,6 +51,16 @@ function StudentDashboardContent() {
   const activeQuestion =
     currentQuestions.find((q) => q.id === selectedQId) || currentQuestions[0] || null;
 
+  const previousResult = (() => {
+    if (!activeQuestion) return null;
+    const rows = myResults.filter((r) => r.questionId === activeQuestion.id);
+    if (rows.length === 0) return null;
+    const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+    const older = rows.filter((r) => r.resultVersion < latest.resultVersion);
+    if (older.length === 0) return null;
+    return older.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+  })();
+
   const totalAwarded = currentQuestions.reduce((s, q) => s + q.awardedMarks, 0);
   const totalMax = currentQuestions.reduce((s, q) => s + q.maxMarks, 0);
 
@@ -79,6 +89,9 @@ function StudentDashboardContent() {
 
   const { crops, spans } = getQuestionEvidence(activeQuestion?.id);
   const existingRequest = activeQuestion ? myRequests.find((r) => r.questionId === activeQuestion.id) : null;
+  const hasPendingReview = activeQuestion
+    ? myRequests.some((r) => r.questionId === activeQuestion.id && r.status === "PENDING_TEACHER_REVIEW")
+    : false;
 
   function handleTabChange(tab: "dashboard" | "marks" | "review") {
     router.push(`/?tab=${tab}`);
@@ -93,7 +106,7 @@ function StudentDashboardContent() {
   }
 
   function handleSubmitReviewRequest() {
-    if (!activeQuestion || !reviewReason.trim()) return;
+    if (!activeQuestion || !reviewReason.trim() || hasPendingReview) return;
     actions.submitReviewRequest(
       studentId,
       activeQuestion.id,
@@ -283,6 +296,12 @@ function StudentDashboardContent() {
                       {activeQuestion.number} · What your answer covered
                     </h2>
                     <p className="text-sm leading-relaxed text-[#4b5563]">{activeQuestion.feedback}</p>
+                    {previousResult ? (
+                      <p className="text-sm leading-relaxed text-[#4b5563]">
+                        Previous mark: {previousResult.awardedMarks} / {previousResult.maxMarks} (version{" "}
+                        {previousResult.resultVersion}).
+                      </p>
+                    ) : null}
                   </div>
 
                   {/* Answer Evidence Crops & OCR Text (If Available) */}
@@ -396,7 +415,7 @@ function StudentDashboardContent() {
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <button
                       type="button"
-                      disabled={!reviewReason.trim() || reviewSubmitted}
+                      disabled={!reviewReason.trim() || reviewSubmitted || hasPendingReview}
                       onClick={handleSubmitReviewRequest}
                       className="rounded-xl bg-[#4338ca] px-6 py-3 text-sm font-semibold text-white hover:bg-[#3730a3] disabled:opacity-50 transition shadow-xs cursor-pointer"
                     >
@@ -410,6 +429,11 @@ function StudentDashboardContent() {
                       Cancel
                     </button>
                   </div>
+                  {hasPendingReview ? (
+                    <p className="text-sm leading-relaxed text-[#4b5563]">
+                      A review request for this question is already waiting for your teacher.
+                    </p>
+                  ) : null}
 
                   {/* Alert Banner */}
                   <div className="flex items-center gap-3 rounded-2xl bg-[#f0f1ff] p-4 text-xs lg:text-sm text-[#111827] border border-indigo-100">
