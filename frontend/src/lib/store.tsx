@@ -821,27 +821,26 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         if (!id) return;
         const q = d.assessment.questions[0];
         if (!q) return;
+        if ((d.studentResults?.[id] ?? []).some((r) => r.questionId === q.id)) return;
         if (!d.studentResults) d.studentResults = {};
         const criteria: StudentCriterionMark[] = [
           { criterionId: "C1", description: "Objects and classes", awarded: 2, maxMark: 2, status: "COVERED" },
           { criterionId: "C2", description: "Encapsulation", awarded: 1, maxMark: 2, status: "PARTIAL" },
           { criterionId: "C3", description: "Inheritance", awarded: 0, maxMark: 1, status: "MISSING" },
         ];
-        d.studentResults[id] = [
-          {
-            questionId: q.id,
-            questionNumber: q.number,
-            questionPrompt: q.prompt,
-            maxMarks: 5,
-            awardedMarks: 3,
-            resultVersion: 1,
-            releasedAt: nowIso(),
-            transcriptVersion: 1,
-            approvedTranscript: "",
-            feedbackText: feedbackFromCriteria(criteria),
-            criteria,
-          },
-        ];
+        (d.studentResults[id] ??= []).push({
+          questionId: q.id,
+          questionNumber: q.number,
+          questionPrompt: q.prompt,
+          maxMarks: 5,
+          awardedMarks: 3,
+          resultVersion: 1,
+          releasedAt: nowIso(),
+          transcriptVersion: 1,
+          approvedTranscript: "",
+          feedbackText: feedbackFromCriteria(criteria),
+          criteria,
+        });
         audit(d, "RELEASE", `Released Q1 to student ${id}`);
       }),
   };
