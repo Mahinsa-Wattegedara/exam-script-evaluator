@@ -51,6 +51,16 @@ function StudentDashboardContent() {
   const activeQuestion =
     currentQuestions.find((q) => q.id === selectedQId) || currentQuestions[0] || null;
 
+  const previousResult = (() => {
+    if (!activeQuestion) return null;
+    const rows = myResults.filter((r) => r.questionId === activeQuestion.id);
+    if (rows.length === 0) return null;
+    const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+    const older = rows.filter((r) => r.resultVersion < latest.resultVersion);
+    if (older.length === 0) return null;
+    return older.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+  })();
+
   const totalAwarded = currentQuestions.reduce((s, q) => s + q.awardedMarks, 0);
   const totalMax = currentQuestions.reduce((s, q) => s + q.maxMarks, 0);
 
@@ -283,6 +293,12 @@ function StudentDashboardContent() {
                       {activeQuestion.number} · What your answer covered
                     </h2>
                     <p className="text-sm leading-relaxed text-[#4b5563]">{activeQuestion.feedback}</p>
+                    {previousResult ? (
+                      <p className="text-sm leading-relaxed text-[#4b5563]">
+                        Previous mark: {previousResult.awardedMarks} / {previousResult.maxMarks} (version{" "}
+                        {previousResult.resultVersion}).
+                      </p>
+                    ) : null}
                   </div>
 
                   {/* Answer Evidence Crops & OCR Text (If Available) */}
