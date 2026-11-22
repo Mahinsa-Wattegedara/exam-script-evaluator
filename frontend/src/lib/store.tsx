@@ -750,6 +750,12 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         if (!id) return;
         const released = (d.studentResults?.[id] ?? []).some((r) => r.questionId === questionId);
         if (!released) return;
+        if (
+          d.reviewRequests.some(
+            (r) => r.studentId === id && r.questionId === questionId && r.status === "PENDING_TEACHER_REVIEW",
+          )
+        )
+          return;
 
         d.reviewRequests.unshift({
           id: uid("req"),
