@@ -139,7 +139,6 @@ async def _call_gemini_vision_json(
     api_key: str,
     model: str,
     parts: list[dict[str, Any]],
-    thinking_level: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Calls pinned Gemini Vision deterministically with brief retry on HTTP 503
@@ -157,8 +156,6 @@ async def _call_gemini_vision_json(
         gen_config: dict[str, Any] = {"temperature": 0.0, "topK": 1, "seed": 42}
         if cand.startswith("gemini-"):
             gen_config["responseMimeType"] = "application/json"
-        if thinking_level and cand.startswith("gemini-3"):
-            gen_config["thinkingConfig"] = {"thinkingLevel": thinking_level}
 
         attempts = 2 if idx_m == 0 else 1
         for attempt in range(attempts):
