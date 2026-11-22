@@ -771,6 +771,11 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         const q = d.assessment.questions[0];
         if (!q) return;
         if (!d.studentResults) d.studentResults = {};
+        const criteria: StudentCriterionMark[] = [
+          { criterionId: "C1", description: "Objects and classes", awarded: 2, maxMark: 2, status: "COVERED" },
+          { criterionId: "C2", description: "Encapsulation", awarded: 1, maxMark: 2, status: "PARTIAL" },
+          { criterionId: "C3", description: "Inheritance", awarded: 0, maxMark: 1, status: "MISSING" },
+        ];
         d.studentResults[id] = [
           {
             questionId: q.id,
@@ -782,30 +787,8 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
             releasedAt: nowIso(),
             transcriptVersion: 1,
             approvedTranscript: "",
-            feedbackText: "Released mark for this question.",
-            criteria: [
-              {
-                criterionId: "C1",
-                description: "Objects and classes",
-                awarded: 2,
-                maxMark: 2,
-                status: "COVERED",
-              },
-              {
-                criterionId: "C2",
-                description: "Encapsulation",
-                awarded: 1,
-                maxMark: 2,
-                status: "PARTIAL",
-              },
-              {
-                criterionId: "C3",
-                description: "Inheritance",
-                awarded: 0,
-                maxMark: 1,
-                status: "MISSING",
-              },
-            ],
+            feedbackText: feedbackFromCriteria(criteria),
+            criteria,
           },
         ];
         audit(d, "RELEASE", `Released Q1 to student ${id}`);
