@@ -54,6 +54,9 @@ export default function Overview() {
   const [activeTab, setActiveTab] = useState<"ALL" | "ACTIVE" | "RELEASED">("ALL");
   const [releaseStudentId, setReleaseStudentId] = useState("245001K");
   const [newReleasedMark, setNewReleasedMark] = useState("");
+  const [criterionStatus, setCriterionStatus] = useState<
+    Record<string, "" | "COVERED" | "PARTIAL" | "MISSING">
+  >({});
 
   if (user?.role === "ADMIN") {
     return <AdminDashboard />;
@@ -261,8 +264,28 @@ export default function Overview() {
         ) : (
           <ul className="mt-4 divide-y divide-[color:var(--x-border,#e4e7ef)]">
             {approvedQ1Rubric.criteria.map((c) => (
-              <li key={c.id} className="py-3 first:pt-0 last:pb-0 text-sm text-[color:var(--x-ink,#111827)]">
-                {c.description} · {c.maxMarks}
+              <li
+                key={c.id}
+                className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 text-sm text-[color:var(--x-ink,#111827)]"
+              >
+                <span>
+                  {c.description} · {c.maxMarks}
+                </span>
+                <select
+                  value={criterionStatus[c.id] ?? ""}
+                  onChange={(e) =>
+                    setCriterionStatus((prev) => ({
+                      ...prev,
+                      [c.id]: e.target.value as "" | "COVERED" | "PARTIAL" | "MISSING",
+                    }))
+                  }
+                  className="h-10 min-w-[10rem] rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-sm text-[color:var(--x-ink,#111827)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--x-primary600,#4338ca)]/30"
+                >
+                  <option value="">Choose status</option>
+                  <option value="COVERED">Covered</option>
+                  <option value="PARTIAL">Partial</option>
+                  <option value="MISSING">Missing</option>
+                </select>
               </li>
             ))}
           </ul>
