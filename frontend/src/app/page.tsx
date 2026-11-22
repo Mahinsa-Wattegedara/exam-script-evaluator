@@ -26,6 +26,7 @@ export default function Overview() {
   const awaitingReviewCount = count((s) => s === "NEEDS_REVIEW");
   const approvedCount = count((s) => s === "READY_FOR_AI");
   const isReleased = Object.keys(state.studentResults || {}).length > 0;
+  const pendingReviews = state.reviewRequests.filter((r) => r.status === "PENDING_TEACHER_REVIEW");
 
   // Dynamic Pipeline Stage Tracking
   const hasScheme = (state.rubrics?.length ?? 0) > 0 && state.rubrics.some((r) => r.approved);
@@ -181,6 +182,28 @@ export default function Overview() {
             Create assessment
           </Link>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
+        <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+          Pending review requests
+        </div>
+        {pendingReviews.length === 0 ? (
+          <p className="mt-4 text-sm text-[color:var(--x-secondary,#4b5563)]">No pending review requests.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-[color:var(--x-border,#e4e7ef)]">
+            {pendingReviews.map((r) => (
+              <li key={r.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                  <span className="font-mono font-medium text-[color:var(--x-ink,#111827)]">{r.studentId}</span>
+                  <span className="font-medium text-[color:var(--x-ink,#111827)]">{r.questionNumber}</span>
+                  <span className="text-[11px] text-slate-400">{fmtTime(r.submittedAt)}</span>
+                </div>
+                <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">{r.reason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* 5-Stage Pipeline Progress Card (Figma 121:2306) */}
