@@ -345,6 +345,16 @@ function StudentDashboardContent() {
                 </p>
               </div>
 
+              {existingRequest?.status === "RESOLVED" && existingRequest.teacherResolutionNote?.trim() ? (
+                <div className="rounded-2xl border border-[#e4e7ef] bg-white p-6 shadow-2xs">
+                  <h2 className="text-base font-semibold text-[#111827]">Teacher response</h2>
+                  <p className="mt-2 text-sm text-[#4b5563]">{existingRequest.teacherResolutionNote.trim()}</p>
+                  <p className="mt-2 text-sm text-[#4b5563]">
+                    The mark is still {activeQuestion.awardedMarks} / {activeQuestion.maxMarks}.
+                  </p>
+                </div>
+              ) : null}
+
               {/* Form & Summary Card */}
               <div className="grid gap-6 lg:grid-cols-12 items-start">
                 {/* Left Column: Form (8 cols) */}
