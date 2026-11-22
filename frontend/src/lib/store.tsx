@@ -6,7 +6,7 @@ import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
 import type { ImportedQuestion } from "./marking-scheme-import";
-import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
 const ACTOR = "Dr. S. Silva";
@@ -44,6 +44,25 @@ const StoreCtx = createContext<Ctx | null>(null);
 
 function audit(d: State, action: string, detail: string) {
   d.audit.unshift({ id: uid("au"), at: nowIso(), actor: ACTOR, action, detail });
+}
+
+/** 81 words for Objects and classes, Encapsulation, and Inheritance. */
+function feedbackFromCriteria(criteria: StudentCriterionMark[]): string {
+  const awarded = criteria.reduce((sum, row) => sum + row.awarded, 0);
+  const max = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+  const sentences = criteria.map((row) => {
+    if (row.status === "COVERED") {
+      return `Your answer included ${row.description}, and that point was fully covered.`;
+    }
+    if (row.status === "PARTIAL") {
+      return `${row.description} was only partly covered: some of the expected detail is present, but not enough to award the full mark for that point.`;
+    }
+    return `${row.description} was missing, so that point received no marks.`;
+  });
+  const parts = criteria.map((row) => `${row.awarded} out of ${row.maxMark} for ${row.description}`);
+  const breakdown =
+    parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  return `${sentences.join(" ")} The released mark for this question is ${awarded} out of ${max}, which is the sum of ${breakdown}.`;
 }
 
 function makeActions(mutate: Ctx["mutate"], getState: () => State) {
