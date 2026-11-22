@@ -11,7 +11,7 @@ import type { ModelAnswerImage, RubricCriterion, RubricSubquestion } from "@/lib
 function RubricContent() {
   const searchParams = useSearchParams();
   const qParam = searchParams.get("q");
-  const { state, actions } = useStore();
+  const { state, actions, flushPersistence } = useStore();
   const { assessment, rubrics } = state;
 
   const [selectedQId, setSelectedQId] = useState<string>(
@@ -425,7 +425,10 @@ function RubricContent() {
   function handleSaveDraft() {
     if (!currentQ) return;
     actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages, subquestions);
-    setValidationMsg({ ok: true, msg: "Marking scheme draft saved successfully." });
+    const saved = flushPersistence();
+    setValidationMsg(saved.ok
+      ? { ok: true, msg: `Draft for ${currentQ.number} saved in this browser. Reopen this same address to continue editing.` }
+      : { ok: false, msg: saved.error || "Draft could not be saved. Keep this page open and retry." });
   }
 
   function handleApproveRubric() {
@@ -447,9 +450,10 @@ function RubricContent() {
       setValidationMsg({ ok: false, msg: res.error || "Approval failed." });
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
+      const saved = flushPersistence();
       setValidationMsg({
-        ok: true,
-        msg: `Rubric approved successfully for ${currentQ.number}! Version active for evaluation.`,
+        ok: saved.ok,
+        msg: saved.ok ? `Rubric approved and saved for ${currentQ.number}. Version active for evaluation.` : saved.error || "Approval could not be saved in this browser.",
       });
     }
   }
@@ -720,7 +724,7 @@ function RubricContent() {
               onAdd={()=>setCriteria([...criteria,{id:`C${Math.max(0,...criteria.map(c=>Number(c.id.replace(/\D/g,''))||0))+1}`,subquestionId:subquestions.length?part.id:undefined,sourceExcerpt:"",description:"",maxMarks:1,allowedPartialCredits:[0,1],acceptedAlternatives:[],scoringGuide:[{marks:0,description:""},{marks:1,description:""}]}])}
             />)}
             <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-              <div><p className={`text-sm font-medium ${isReadyToApprove ? "text-emerald-700" : "text-slate-700"}`}>{approvalHint}</p><p className="mt-1 text-xs text-slate-500">Approval makes this version available for evaluation.</p></div>
+              <div><p className={`text-sm font-medium ${isReadyToApprove ? "text-emerald-700" : "text-slate-700"}`}>{approvalHint}</p><p className="mt-1 text-xs text-slate-500">Approval makes this version available for evaluation.</p>{validationMsg && <p role="status" className={`mt-2 text-xs ${validationMsg.ok ? "text-emerald-700" : "text-rose-700"}`}>{validationMsg.msg}</p>}</div>
               <div className="flex shrink-0 gap-2"><Button onClick={handleSaveDraft}>Save draft</Button><Button variant="primary" onClick={handleApproveRubric} disabled={!isReadyToApprove}>Approve {currentQ.number}</Button></div>
             </div>
           </div>}
