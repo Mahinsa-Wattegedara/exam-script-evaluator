@@ -1,0 +1,3 @@
+# Reviewed template placeholder (value begins "replace-with-") in one old commit.
+# Ignore only this exact finding; future edits and real secrets are still scanned.
+13ed90bd0dacfefc5d5fee70a18e2d52fababe6d:backend/.env.example:generic-api-key:9
