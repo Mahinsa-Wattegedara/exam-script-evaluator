@@ -604,8 +604,22 @@ export function ReviewQueueInner() {
                     const isEditable =
                       curVersion.approvalStatus === "PENDING" &&
                       curVersion.version === currentAnswer.activeVersion;
+                    const confNum = typeof sp.confidence === "number" ? sp.confidence : null;
+                    const confUpper = String(sp.confidence ?? "UNKNOWN").toUpperCase();
+                    const isLowConf =
+                      (confNum !== null && confNum < 0.75) ||
+                      confUpper === "LOW" ||
+                      confUpper === "UNKNOWN" ||
+                      sp.text.includes("[?]");
+                    const confLabel =
+                      confNum !== null ? `${Math.round(confNum * 100)}%` : confUpper;
                     return (
-                      <div key={sp.id} className="flex items-start gap-2.5 py-1.5 hover:bg-slate-100/80 px-2 rounded transition-colors group">
+                      <div
+                        key={sp.id}
+                        className={`flex items-start gap-2.5 py-1.5 px-2 rounded transition-colors group ${
+                          isLowConf && !sp.edited ? "bg-amber-50/70 hover:bg-amber-100/60" : "hover:bg-slate-100/80"
+                        }`}
+                      >
                         <span
                           title={`Span ID: ${sp.id} (Line ${lineNum})`}
                           className="w-8 shrink-0 text-right pr-2 text-slate-400 select-none text-[11px] font-mono font-medium pt-1 border-r border-slate-200/80 group-hover:text-slate-600 transition-colors"
@@ -615,20 +629,44 @@ export function ReviewQueueInner() {
                         {isEditable ? (
                           <div className="flex-1 flex items-start gap-2">
                             <textarea
-                              rows={Math.max(1, Math.ceil((sp.text?.length || 1) / 68))}
+                              rows={Math.max(1, Math.ceil((sp.text?.length || 1) / 64))}
                               value={sp.text}
                               onChange={(e) => actions.editSpan(currentAnswer.id, sp.id, e.target.value)}
                               aria-label={`Transcript line ${lineNum}`}
                               className="flex-1 resize-y rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] leading-relaxed text-[color:var(--x-ink,#111827)] hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                             />
-                            {sp.edited && (
-                              <span className="mt-1 shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-sans font-semibold text-indigo-700 border border-indigo-200">
-                                Edited
+                            <div className="mt-1 flex shrink-0 items-center gap-1">
+                              <span
+                                title={`OCR confidence: ${confLabel}`}
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-sans font-semibold border ${
+                                  isLowConf && !sp.edited
+                                    ? "bg-amber-100 text-amber-900 border-amber-300"
+                                    : "bg-slate-100 text-slate-600 border-slate-200"
+                                }`}
+                              >
+                                {confLabel}
                               </span>
-                            )}
+                              {sp.edited && (
+                                <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-sans font-semibold text-indigo-700 border border-indigo-200">
+                                  Edited
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ) : (
-                          <span className="flex-1 whitespace-pre-wrap leading-relaxed text-[13px] pt-0.5">{sp.text}</span>
+                          <div className="flex-1 flex items-start justify-between gap-2 pt-0.5">
+                            <span className="flex-1 whitespace-pre-wrap leading-relaxed text-[13px]">{sp.text}</span>
+                            <span
+                              title={`OCR confidence: ${confLabel}`}
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-sans font-semibold border ${
+                                isLowConf && !sp.edited
+                                  ? "bg-amber-100 text-amber-900 border-amber-300"
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
+                              }`}
+                            >
+                              {confLabel}
+                            </span>
+                          </div>
                         )}
                       </div>
                     );
@@ -690,6 +728,26 @@ export function ReviewQueueInner() {
                 </button>
                 {curVersion?.approvalStatus !== "APPROVED" && (
                   <>
+                    {(currentAnswer.blankDetected || (curVersion?.spans.length ?? 0) === 0) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSecurityBlockError(null);
+                          actions.markNotAttempted(currentAnswer.id);
+                          const nextAns = scriptAnswers.find(
+                            (a) => a.id !== currentAnswer.id && activeVersion(a)?.approvalStatus !== "APPROVED",
+                          );
+                          if (nextAns) {
+                            setSelectedAnswerId(nextAns.id);
+                          } else {
+                            handleBackToQueue();
+                          }
+                        }}
+                        className="h-10 rounded-xl border border-slate-300 bg-slate-100 px-4 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition cursor-pointer"
+                      >
+                        Mark not attempted
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -710,12 +768,19 @@ export function ReviewQueueInner() {
                     <button
                       type="button"
                       onClick={() => {
-                        const hasOpenInjection = unresolvedFlags(curVersion).some(
-                          (f) => f.type === "PROMPT_INJECTION",
-                        );
-                        if (hasOpenInjection) {
+                        const openFlags = unresolvedFlags(curVersion);
+                        if (openFlags.some((f) => f.type === "PROMPT_INJECTION")) {
                           setSecurityBlockError(
                             "OWASP ASI01 / NFR-04 Guardrail: An unresolved prompt-injection attempt is flagged on this transcript. Please confirm XML delimiter isolation on the flag below or route to manual marking before approving.",
+                          );
+                          return;
+                        }
+                        if (
+                          (currentAnswer.blankDetected && !currentAnswer.blankConfirmed) ||
+                          openFlags.some((f) => f.type === "BLANK_ANSWER")
+                        ) {
+                          setSecurityBlockError(
+                            "M1-03 Blank Answer Check: A blank answer requires explicit teacher confirmation below before treating it as an attempted answer with no content (or mark as Not attempted).",
                           );
                           return;
                         }
@@ -791,26 +856,53 @@ export function ReviewQueueInner() {
                             {f.message}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSecurityBlockError(null);
-                            actions.resolveFlag(
-                              currentAnswer.id,
-                              f.id,
-                              isInjection
-                                ? "Teacher verified: isolated inside <student_answer_transcript> XML delimiters (NFR-04)"
-                                : "Teacher verified",
-                            );
-                          }}
-                          className={`rounded-lg bg-white px-3 py-1 text-xs font-semibold border transition cursor-pointer shrink-0 ${
-                            isInjection
-                              ? "text-rose-800 border-rose-300 hover:bg-rose-100"
-                              : "text-amber-800 border-amber-300 hover:bg-amber-100"
-                          }`}
-                        >
-                          {isInjection ? "Confirm isolated in XML delimiters" : "Resolve flag"}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                          {f.type === "BLANK_ANSWER" ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSecurityBlockError(null);
+                                  actions.confirmBlank(currentAnswer.id);
+                                }}
+                                className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-amber-800 border border-amber-300 hover:bg-amber-100 transition cursor-pointer"
+                              >
+                                Confirm blank attempt
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSecurityBlockError(null);
+                                  actions.markNotAttempted(currentAnswer.id);
+                                }}
+                                className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition cursor-pointer"
+                              >
+                                Not attempted
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSecurityBlockError(null);
+                                actions.resolveFlag(
+                                  currentAnswer.id,
+                                  f.id,
+                                  isInjection
+                                    ? "Teacher verified: isolated inside <student_answer_transcript> XML delimiters (NFR-04)"
+                                    : "Teacher verified",
+                                );
+                              }}
+                              className={`rounded-lg bg-white px-3 py-1 text-xs font-semibold border transition cursor-pointer ${
+                                isInjection
+                                  ? "text-rose-800 border-rose-300 hover:bg-rose-100"
+                                  : "text-amber-800 border-amber-300 hover:bg-amber-100"
+                              }`}
+                            >
+                              {isInjection ? "Confirm isolated in XML delimiters" : "Resolve flag"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
