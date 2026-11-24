@@ -25,3 +25,9 @@ uvicorn app.main:app --reload --port 8000
 - `POST /api/v1/auth/register` — Teacher account registration
 - `POST /api/v1/auth/session` — Session verification
 
+## Module 2 approved rubric storage
+
+Authenticated approval and version retrieval endpoints, database migration setup,
+request examples and verification instructions are documented in
+[Approved rubric storage API](docs/module2-approved-rubrics.md).
+

@@ -28,6 +28,7 @@ from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
 from app.services.rubric_draft import create_rubric_draft
 from app.services.crypto_service import verify_session_jwt
 from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
+from app.routes.approved_rubrics import router as approved_rubrics_router
 
 # Load environment variables from backend/.env or frontend/.env
 backend_env = Path(__file__).resolve().parent.parent / ".env"
@@ -50,6 +51,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
+app.include_router(approved_rubrics_router)
 
 
 @app.post("/api/v1/module2/rubric/draft-from-script", response_model=RubricDraftResponse)
