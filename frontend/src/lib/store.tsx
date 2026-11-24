@@ -1,10 +1,11 @@
 "use client";
 // Client-side store for the frontend demo. All data is mock data held in the browser
-// (localStorage + IndexedDB for uploaded files). No backend calls are made.
+// (localStorage + IndexedDB for uploaded files). Approved rubrics use the backend.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
+import { loadApprovedRubric, saveApprovedRubric, type ApprovedRubric } from "./approved-rubrics";
 import type { ImportedQuestion } from "./marking-scheme-import";
 import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
@@ -71,7 +72,29 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   const code = (d: State, scriptId: string) => d.scripts.find((s) => s.id === scriptId)?.pseudonymousCode ?? "?";
   const qnum = (d: State, qid: string) => d.assessment.questions.find((q) => q.id === qid)?.number ?? qid;
 
+  function receiveApproval(saved: ApprovedRubric, replaceDraft: boolean, images?: ModelAnswerImage[]) {
+    mutate(d => {
+      if (d.assessment.id !== saved.assessmentId) return;
+      const q = d.assessment.questions.find(q => q.id === saved.questionId);
+      if (!q) return;
+      Object.assign(q, { number: saved.question.number, prompt: saved.question.prompt, maxMarks: saved.question.maxMarks });
+      d.rubrics = d.rubrics.filter(r => r.questionId !== saved.questionId || (!r.approved && !replaceDraft) || (r.approved && r.rubricId && r.version !== saved.version));
+      d.rubrics.push({
+        questionId: saved.questionId, rubricId: saved.rubricId, version: saved.version,
+        criteria: saved.question.criteria, subquestions: saved.question.subquestions,
+        modelAnswerText: saved.question.modelAnswerText, modelAnswerImages: images,
+        approved: true, approvedAt: saved.approvedAt, approvedBy: saved.approvedBy,
+      });
+      audit(d, "APPROVE_RUBRIC", `Loaded database-approved rubric v${saved.version} for ${q.number}`);
+    });
+  }
+
   return {
+    loadApprovedRubric: async (questionId: string) => {
+      const saved = await loadApprovedRubric(getState().assessment.id, questionId);
+      receiveApproval(saved, true);
+      return saved;
+    },
     updateAssessment: (title: string, course: string) =>
       mutate((d) => {
         d.assessment.title = title;
@@ -197,7 +220,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         if (subquestions !== undefined) r.subquestions = subquestions;
       }),
 
-    approveRubric: (
+    approveRubric: async (
       questionId: string,
       criteria: RubricCriterion[],
       modelAnswerText?: string,
@@ -205,7 +228,8 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       subquestions?: RubricSubquestion[],
     ) => {
       let result: { ok: boolean; error?: string } = { ok: false, error: "" };
-      mutate((d) => {
+      const snapshot = structuredClone(getState());
+      ((d: State) => {
         if (!d.rubrics) d.rubrics = [];
         const q = d.assessment.questions.find((x) => x.id === questionId);
         if (!q) {
@@ -258,33 +282,18 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           subquestions.some(part => !part.originalAnswer.trim() || !part.prompt.trim() || !Number.isFinite(part.maxMarks) || part.maxMarks <= 0 || Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks, 0) - part.maxMarks) > 0.001) ||
           criteria.some(c => !subquestions.some(part => part.id === c.subquestionId) || !c.sourceExcerpt?.trim())
         )) { result = {ok:false, error:"Each subquestion needs its original answer and a mark breakdown matching its full marks."}; return; }
-        const approvedVersions = d.rubrics.filter((x) => x.questionId === questionId && x.approved);
-        const nextVer = approvedVersions.length + 1;
-
-        const approvedRubric: RubricVersion = {
-          version: nextVer,
-          questionId,
-          criteria,
-          modelAnswerText,
-          modelAnswerImages,
-          subquestions,
-          approved: true,
-          approvedAt: nowIso(),
-          approvedBy: ACTOR,
-        };
-
-        // Remove unapproved draft if any
-        d.rubrics = d.rubrics.filter((x) => !(x.questionId === questionId && !x.approved));
-        d.rubrics.push(approvedRubric);
-
-        audit(
-          d,
-          "APPROVE_RUBRIC",
-          `Approved Rubric v${nextVer} for ${q.number} (${criteria.length} criteria, ${q.maxMarks} marks total)`,
-        );
         result = { ok: true };
-      });
-      return result;
+      })(snapshot);
+      if (!result.ok) return result;
+      try {
+        const question = snapshot.assessment.questions.find(q => q.id === questionId)!;
+        const expectedVersion = Math.max(0, ...snapshot.rubrics.filter(r => r.questionId === questionId && r.approved && r.rubricId).map(r => r.version));
+        const saved = await saveApprovedRubric(snapshot.assessment, question, criteria, modelAnswerText || "", subquestions || [], expectedVersion);
+        receiveApproval(saved, true, modelAnswerImages);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Approval failed. Load the saved approval before retrying." };
+      }
     },
 
     addUploads: (

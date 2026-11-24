@@ -32,6 +32,8 @@ function RubricContent() {
   const activeRubric = rubrics.filter((r) => r.questionId === selectedQId && r.approved).sort((a, b) => b.version - a.version)[0];
   const draftRubric = rubrics.find((r) => r.questionId === selectedQId && !r.approved);
 
+  const [approving, setApproving] = useState(false);
+  const [loadingApproval, setLoadingApproval] = useState(false);
   const [criteria, setCriteria] = useState<RubricCriterion[]>([]);
   const [subquestions, setSubquestions] = useState<RubricSubquestion[]>([]);
   const [modelAnswerText, setModelAnswerText] = useState<string>("");
@@ -135,7 +137,7 @@ function RubricContent() {
   const hasValidPrompt = Boolean(currentQ && !isPlaceholderPrompt(currentQ.prompt));
   const allCriteriaFilled = criteria.length > 0 && criteria.every((c) => c.description.trim().length > 0);
   const hasCompleteScoring = criteria.every((c) => c.acceptedAlternatives.some((answer) => answer.trim()) && c.scoringGuide && c.scoringGuide.length === c.allowedPartialCredits.length && new Set(c.scoringGuide.map((entry) => entry.marks)).size === c.scoringGuide.length && c.scoringGuide.every((entry) => c.allowedPartialCredits.includes(entry.marks) && entry.description.trim()));
-  const hasValidSubquestionTotals = !subquestions.length || (
+  const hasValidSubquestionTotals = subquestions.length > 0 && (
     Math.abs(subquestions.reduce((sum, part) => sum + part.maxMarks, 0) - qMaxMarks) < 0.001 &&
     subquestions.every(part => part.prompt.trim() && part.originalAnswer.trim() && Number.isFinite(part.maxMarks) && part.maxMarks > 0 && Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks,0) - part.maxMarks) < 0.001) &&
     criteria.every(c => subquestions.some(part => part.id === c.subquestionId) && c.sourceExcerpt?.trim())
@@ -431,7 +433,7 @@ function RubricContent() {
       : { ok: false, msg: saved.error || "Draft could not be saved. Keep this page open and retry." });
   }
 
-  function handleApproveRubric() {
+  async function handleApproveRubric() {
     if (!currentQ) return;
     const errorMsg = !hasValidPrompt
       ? "Please enter the question prompt / topic before approving the marking scheme."
@@ -445,16 +447,38 @@ function RubricContent() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    const res = actions.approveRubric(currentQ.id, criteria, modelAnswerText, modelImages, subquestions);
+    if (approving) return;
+    setApproving(true);
+    const res = await actions.approveRubric(currentQ.id, criteria, modelAnswerText, modelImages, subquestions);
+    setApproving(false);
     if (!res.ok) {
       setValidationMsg({ ok: false, msg: res.error || "Approval failed." });
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       const saved = flushPersistence();
       setValidationMsg({
-        ok: saved.ok,
-        msg: saved.ok ? `Rubric approved and saved for ${currentQ.number}. Version active for evaluation.` : saved.error || "Approval could not be saved in this browser.",
+        ok: true,
+        msg: saved.ok ? `Rubric for ${currentQ.number} saved to Supabase and verified. Version active for evaluation.` : "Approval saved to Supabase and verified, but the browser cache could not be updated. Use Load saved approval to retrieve it.",
       });
+    }
+  }
+
+  async function handleLoadApproval() {
+    if (!currentQ || loadingApproval) return;
+    if (!window.confirm("Load the latest approval from Supabase? This replaces this question and its local draft with the saved version. Continue?")) return;
+    setLoadingApproval(true);
+    try {
+      const saved = await actions.loadApprovedRubric(currentQ.id);
+      setCriteria(saved.question.criteria);
+      setSubquestions(saved.question.subquestions);
+      setModelAnswerText(saved.question.modelAnswerText);
+      setModelImages([]);
+      const cached = flushPersistence();
+      setValidationMsg({ ok: true, msg: `Loaded approved version ${saved.version} from Supabase.${cached.ok ? "" : " Browser cache could not be updated."}` });
+    } catch (error) {
+      setValidationMsg({ ok: false, msg: error instanceof Error ? error.message : "Could not load the saved approval." });
+    } finally {
+      setLoadingApproval(false);
     }
   }
 
@@ -462,7 +486,7 @@ function RubricContent() {
   const approvalHint = !hasValidPrompt ? "Enter the question text to continue." : !allCriteriaFilled ? "Describe each marking point before approving." : !isSumValid ? `Allocate ${qMaxMarks} marks in total. Currently allocated: ${criteriaSum}.` : !hasValidSubquestionTotals ? "Check each subquestion: its marking points must add up to its full marks and include the original answer." : !hasCompleteScoring ? "Add alternative answers and explain every allowed score before approving." : "All checks passed. This question is ready to approve.";
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 pb-12">
+    <fieldset disabled={approving || loadingApproval} aria-busy={approving || loadingApproval} className="mx-auto min-w-0 max-w-7xl space-y-5 pb-12">
       <Modal open={pendingImport !== null} title="Replace existing marking scheme drafts?" onClose={() => setPendingImport(null)} footer={<>
         <Button onClick={() => setPendingImport(null)}>Keep existing drafts</Button>
         <Button variant="primary" onClick={() => { if (!pendingImport) return; try { saveImportedQuestions(pendingImport, true); } catch (error) { setImportError(error instanceof Error ? error.message : "Import failed."); setPendingImport(null); } }}>Replace drafts & import</Button>
@@ -549,14 +573,14 @@ function RubricContent() {
               return <button key={q.id} aria-pressed={q.id === selectedQId} onClick={() => { if (currentQ) actions.saveRubricDraft(currentQ.id, criteria, modelAnswerText, modelImages, subquestions); setSelectedQId(q.id); setOcrMessage(null); }} className={`w-full rounded-lg px-3 py-3 text-left transition ${q.id === selectedQId ? "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200" : "text-slate-700 hover:bg-slate-50"}`}>
                 <span className="flex items-center justify-between text-sm font-semibold"><span>{q.number}</span><span className="text-xs">{q.maxMarks} marks</span></span>
                 <span className="mt-1 block truncate text-xs opacity-75">{isPlaceholderPrompt(q.prompt) ? "Add question text" : q.prompt}</span>
-                <span className={`mt-2 block text-[11px] ${approved ? "text-emerald-700" : "text-slate-500"}`}>{approved ? `Approved · v${approved.version}` : "Draft · review required"}</span>
+                <span className={`mt-2 block text-[11px] ${approved ? "text-emerald-700" : "text-slate-500"}`}>{approved ? `${approved.rubricId ? "Saved to Supabase" : "Browser only"} · v${approved.version}` : "Draft · review required"}</span>
               </button>;
             })}</div>
             <div className="border-t border-slate-100 p-3"><Button className="w-full" onClick={handleAddQuestion}>+ Add question</Button></div>
           </Card>
           {currentQ && <div className="min-w-0 space-y-5">
             <Card className="p-5">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold text-slate-900">{currentQ.number} · Question details</h2><Badge tone={activeRubric ? "green" : "amber"}>{activeRubric ? `Approved v${activeRubric.version}` : "Draft"}</Badge></div>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold text-slate-900">{currentQ.number} · Question details</h2><Badge tone={activeRubric ? "green" : "amber"}>{activeRubric ? `${activeRubric.rubricId ? "Saved" : "Browser only"} v${activeRubric.version}` : "Draft"}</Badge></div>
               <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
                 <label className="text-xs font-medium text-slate-600">Question text<textarea rows={3} value={isPlaceholderPrompt(currentQ.prompt) ? "" : currentQ.prompt} onChange={(e) => actions.updateQuestion(currentQ.id, e.target.value, currentQ.maxMarks)} placeholder="Enter the full question, including subquestions…" className={fieldClass} /></label>
                 <label className="text-xs font-medium text-slate-600">Total marks<input type="number" step="0.5" min="0.5" value={currentQ.maxMarks} onChange={(e) => { const val = parseFloat(e.target.value); if (val >= 0.5) actions.updateQuestion(currentQ.id, currentQ.prompt, val); }} className={fieldClass} /></label>
@@ -724,13 +748,13 @@ function RubricContent() {
               onAdd={()=>setCriteria([...criteria,{id:`C${Math.max(0,...criteria.map(c=>Number(c.id.replace(/\D/g,''))||0))+1}`,subquestionId:subquestions.length?part.id:undefined,sourceExcerpt:"",description:"",maxMarks:1,allowedPartialCredits:[0,1],acceptedAlternatives:[],scoringGuide:[{marks:0,description:""},{marks:1,description:""}]}])}
             />)}
             <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-              <div><p className={`text-sm font-medium ${isReadyToApprove ? "text-emerald-700" : "text-slate-700"}`}>{approvalHint}</p><p className="mt-1 text-xs text-slate-500">Approval makes this version available for evaluation.</p>{validationMsg && <p role="status" className={`mt-2 text-xs ${validationMsg.ok ? "text-emerald-700" : "text-rose-700"}`}>{validationMsg.msg}</p>}</div>
-              <div className="flex shrink-0 gap-2"><Button onClick={handleSaveDraft}>Save draft</Button><Button variant="primary" onClick={handleApproveRubric} disabled={!isReadyToApprove}>Approve {currentQ.number}</Button></div>
+              <div><p className={`text-sm font-medium ${isReadyToApprove ? "text-emerald-700" : "text-slate-700"}`}>{approvalHint}</p><p className="mt-1 text-xs text-slate-500">Approval saves the complete marking guide to Supabase. Reference images and unapproved drafts stay in this browser.</p>{validationMsg && <p role="status" className={`mt-2 text-xs ${validationMsg.ok ? "text-emerald-700" : "text-rose-700"}`}>{validationMsg.msg}</p>}</div>
+              <div className="flex shrink-0 flex-wrap gap-2"><Button onClick={handleLoadApproval}>{loadingApproval ? "Loading..." : "Load saved approval"}</Button><Button onClick={handleSaveDraft}>Save draft</Button><Button variant="primary" onClick={handleApproveRubric} disabled={!isReadyToApprove || approving}>{approving ? "Saving to Supabase..." : `Approve ${currentQ.number}`}</Button></div>
             </div>
           </div>}
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
 

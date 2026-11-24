@@ -106,9 +106,18 @@ applying the migration and testing against your actual Supabase project.
 
 ## Frontend integration
 
-These endpoints do not change the UI's browser-only approval flow yet. The existing
-Next.js login stores the session in an HttpOnly cookie; a frontend API proxy should
-read that cookie and forward it as the backend bearer token. Only show database-save
-success after a 201 response. Keep `rubricId` and `version` for evaluator requests.
-Reference images are not uploaded by these endpoints; only the structured rubric and
-original answer text are persisted.
+The marking scheme UI sends approvals through a Next.js API proxy. The proxy reads
+the existing HttpOnly session cookie and forwards it as a backend bearer token.
+Sign in as an active teacher before approving. No backend keys reach browser JavaScript.
+
+Approval posts the complete question, original answers, mark allocations, alternatives
+and score guides, then retrieves the exact saved version before confirming success.
+The browser cache records the database rubric ID, version, timestamp and approving
+teacher. Existing browser-only approvals are labelled separately.
+
+Use **Load saved approval** to retrieve the latest version for the current assessment
+and question. It asks before replacing the editor contents and local draft.
+After a conflict or uncertain network result, load and review the saved version before
+submitting again. Version numbers come from Supabase, never a browser counter.
+Drafts and reference image files remain in the browser; the structured rubric and
+original answer text are persisted by these endpoints.

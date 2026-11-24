@@ -41,6 +41,7 @@ export type RubricSubquestion = {
 };
 
 export type RubricVersion = {
+  rubricId?: string; // Present only after a confirmed database save/read.
   subquestions?: RubricSubquestion[];
   version: number; // immutable v1, v2... (REQ-13)
   questionId: string;
