@@ -541,13 +541,17 @@ export function ReviewQueueInner() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 shrink-0 min-h-[58px]">
                 <div>
                   <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
-                    Approved answer
+                    {curVersion?.approvalStatus === "APPROVED" ? "Approved answer" : "Draft transcript (editable)"}
                   </h2>
                   <p className="text-xs text-[color:var(--x-secondary,#4b5563)] mt-0.5">
-                    {curVersion ? `${curVersion.spans.length} lines extracted · Version v${curVersion.version}` : "Draft OCR transcript"}
+                    {curVersion
+                      ? `${curVersion.spans.length} lines extracted · Version v${curVersion.version}${
+                          curVersion.approvalStatus === "PENDING" ? " · Click any line to edit before approval" : ""
+                        }`
+                      : "Draft OCR transcript"}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {currentAnswer.versions.length > 1 && (
                     <div className="flex items-center gap-1 text-xs">
                       <span className="text-slate-400">Versions:</span>
@@ -576,6 +580,18 @@ export function ReviewQueueInner() {
                       + New version
                     </button>
                   )}
+                  {curVersion?.approvalStatus === "PENDING" && curVersion.version > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        actions.discardDraft(currentAnswer.id);
+                        setViewVersionNum(null);
+                      }}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                    >
+                      Discard draft v{curVersion.version}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -585,15 +601,35 @@ export function ReviewQueueInner() {
                   curVersion.spans.map((sp, idx) => {
                     const lineMatch = sp.id?.match(/L(\d+)/i);
                     const lineNum = lineMatch ? lineMatch[1] : (sp.line ?? (idx + 1));
+                    const isEditable =
+                      curVersion.approvalStatus === "PENDING" &&
+                      curVersion.version === currentAnswer.activeVersion;
                     return (
                       <div key={sp.id} className="flex items-start gap-2.5 py-1.5 hover:bg-slate-100/80 px-2 rounded transition-colors group">
                         <span
                           title={`Span ID: ${sp.id} (Line ${lineNum})`}
-                          className="w-8 shrink-0 text-right pr-2 text-slate-400 select-none text-[11px] font-mono font-medium pt-0.5 border-r border-slate-200/80 group-hover:text-slate-600 transition-colors"
+                          className="w-8 shrink-0 text-right pr-2 text-slate-400 select-none text-[11px] font-mono font-medium pt-1 border-r border-slate-200/80 group-hover:text-slate-600 transition-colors"
                         >
                           L{lineNum}
                         </span>
-                        <span className="flex-1 whitespace-pre-wrap leading-relaxed text-[13px]">{sp.text}</span>
+                        {isEditable ? (
+                          <div className="flex-1 flex items-start gap-2">
+                            <textarea
+                              rows={Math.max(1, Math.ceil((sp.text?.length || 1) / 68))}
+                              value={sp.text}
+                              onChange={(e) => actions.editSpan(currentAnswer.id, sp.id, e.target.value)}
+                              aria-label={`Transcript line ${lineNum}`}
+                              className="flex-1 resize-y rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] leading-relaxed text-[color:var(--x-ink,#111827)] hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                            />
+                            {sp.edited && (
+                              <span className="mt-1 shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-sans font-semibold text-indigo-700 border border-indigo-200">
+                                Edited
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="flex-1 whitespace-pre-wrap leading-relaxed text-[13px] pt-0.5">{sp.text}</span>
+                        )}
                       </div>
                     );
                   })
@@ -606,6 +642,29 @@ export function ReviewQueueInner() {
                   </div>
                 )}
               </div>
+
+              {/* Downstream Evaluation Run Binding / Stale History (M1-06) */}
+              {(() => {
+                const answerRuns = state.runs.filter((r) => r.answerId === currentAnswer.id);
+                if (answerRuns.length === 0) return null;
+                return (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-[11px]">
+                    <span className="font-semibold text-slate-600">Downstream runs (M1-06):</span>
+                    {answerRuns.map((r) => (
+                      <span
+                        key={r.id}
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono font-semibold border ${
+                          r.isStale
+                            ? "bg-amber-50 text-amber-800 border-amber-200 line-through decoration-amber-600/70"
+                            : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        }`}
+                      >
+                        {r.kind} (v{r.boundTranscriptVersion}) · {r.isStale ? "STALE" : r.status}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -781,6 +840,8 @@ export function ReviewQueueInner() {
                 type="button"
                 onClick={() => {
                   actions.startNewVersion(currentAnswer.id, newVerReason || "Transcript edit");
+                  setViewVersionNum(null);
+                  setNewVerReason("");
                   setNewVerModal(false);
                 }}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 cursor-pointer"

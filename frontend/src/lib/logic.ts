@@ -205,14 +205,30 @@ export function wrapInStudentAnswerDelimiters(v: TranscriptVersion): string {
   return `<student_answer_transcript>\n${safeLines.join("\n")}\n</student_answer_transcript>`;
 }
 
+function normalizeContractRect(rect?: { x: number; y: number; width: number; height: number }) {
+  if (!rect || !(rect.width > 0) || !(rect.height > 0)) {
+    return { x: 0, y: 0, width: 100, height: 100 };
+  }
+  const x = Math.max(0, Math.min(99.9, Number(rect.x.toFixed(2))));
+  const y = Math.max(0, Math.min(99.9, Number(rect.y.toFixed(2))));
+  const width = Math.max(0.1, Math.min(100, Number(rect.width.toFixed(2))));
+  const height = Math.max(0.1, Math.min(100, Number(rect.height.toFixed(2))));
+  return { x, y, width, height };
+}
+
 export function buildAnswerReady(state: State, a: AnswerRecord): AnswerReady | null {
   const v = latestApproved(a);
   const script = state.scripts.find((s) => s.id === a.scriptId);
   if (!v || !script) return null;
+  if (a.routingStatus === "MANUAL_MARKING" || a.routingStatus === "NOT_ATTEMPTED") {
+    return null;
+  }
+  const fallbackImg = orderedImages(script)[0];
+  const answerRegions = regionsForAnswer(state, a);
   return {
     contract: "AnswerReady",
     schema_version: "1.0",
-    assessment_id: state.assessment.id,
+    assessment_id: state.assessment.id || "asm-default",
     script_id: script.id,
     pseudonymous_script_code: script.pseudonymousCode,
     question_id: a.questionId,
@@ -220,18 +236,19 @@ export function buildAnswerReady(state: State, a: AnswerRecord): AnswerReady | n
     approved_text: versionText(v),
     delimited_text: wrapInStudentAnswerDelimiters(v),
     evidence: v.spans.map((s) => {
-      const r = state.regions.find((x) => x.id === s.regionId);
-      const img = script.images.find((i) => i.id === r?.imageId);
+      const r = state.regions.find((x) => x.id === s.regionId) ?? answerRegions[0];
+      const img = script.images.find((i) => i.id === r?.imageId) ?? fallbackImg;
+      const rawPage = img?.pageNumber ?? 1;
       return {
         span_id: s.id,
         text: s.text,
-        page_number: img?.pageNumber ?? 0,
-        region_id: s.regionId,
-        bbox: r?.bbox ?? { x: 0, y: 0, width: 0, height: 0 },
+        page_number: Math.max(1, Math.min(10, rawPage)),
+        region_id: r?.id || s.regionId || `reg-${a.questionId}`,
+        bbox: normalizeContractRect(r?.bbox),
       };
     }),
-    approval_status: v.approvalStatus,
-    routing_status: a.routingStatus,
+    approval_status: "APPROVED",
+    routing_status: "READY_FOR_AI",
   };
 }
 

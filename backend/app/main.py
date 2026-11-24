@@ -20,6 +20,7 @@ from app.schemas.auth import (
     SessionVerifyResponseSchema,
 )
 from app.schemas.module1 import (
+    AnswerReadySchema,
     StructuredOcrRequest,
     StructuredOcrResponse,
 )
@@ -72,6 +73,47 @@ async def health_check() -> dict[str, str]:
         "service": "exam-script-evaluator-backend",
         "fastapi_version": "0.162.0",
         "module": "Module 1 - Script Intake and Answer Evidence",
+    }
+
+
+@app.post("/api/v1/module1/contract/validate")
+async def validate_answer_ready_contract(payload: AnswerReadySchema) -> dict[str, object]:
+    from fastapi import HTTPException
+
+    if payload.approval_status != "APPROVED":
+        raise HTTPException(
+            status_code=422,
+            detail="Module 2 boundary rejected AnswerReady: approval_status must be 'APPROVED'.",
+        )
+    if payload.routing_status != "READY_FOR_AI":
+        raise HTTPException(
+            status_code=422,
+            detail="Module 2 boundary rejected AnswerReady: routing_status must be 'READY_FOR_AI'.",
+        )
+    if (
+        not payload.delimited_text
+        or not payload.delimited_text.startswith("<student_answer_transcript>")
+        or not payload.delimited_text.endswith("</student_answer_transcript>")
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="NFR-04 guardrail violation: delimited_text must be wrapped in <student_answer_transcript> XML delimiters.",
+        )
+    inner = payload.delimited_text.removeprefix("<student_answer_transcript>").removesuffix("</student_answer_transcript>")
+    if "<student_answer_transcript>" in inner or "</student_answer_transcript>" in inner:
+        raise HTTPException(
+            status_code=422,
+            detail="OWASP ASI01 guardrail violation: unescaped delimiter tag found inside student_answer_transcript.",
+        )
+    return {
+        "ok": True,
+        "contract": payload.contract,
+        "schema_version": payload.schema_version,
+        "pseudonymous_script_code": payload.pseudonymous_script_code,
+        "question_id": payload.question_id,
+        "transcript_version": payload.transcript_version,
+        "span_count": len(payload.evidence),
+        "validated": payload.model_dump(),
     }
 
 

@@ -621,12 +621,26 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     editSpan: (answerId: string, spanId: string, text: string) =>
       mutate((d) => {
-        const v = activeVersion(answerById(d, answerId));
+        const a = answerById(d, answerId);
+        const v = activeVersion(a);
         if (!v || v.approvalStatus !== "PENDING") return;
         const sp = v.spans.find((s) => s.id === spanId);
-        if (sp) {
-          sp.text = text;
-          sp.edited = true;
+        if (!sp) return;
+        sp.text = text;
+        sp.edited = true;
+        v.rawText = versionText(v);
+
+        // Re-evaluate OWASP ASI01 prompt-injection flag on edited line
+        v.flags = v.flags.filter((f) => !(f.type === "PROMPT_INJECTION" && f.spanId === spanId));
+        const inj = detectPromptInjection(text);
+        if (inj) {
+          v.flags.push({
+            id: uid("flag"),
+            type: "PROMPT_INJECTION",
+            spanId,
+            message: `OWASP ASI01 / NFR-04 Alert (Line ${sp.line}): ${inj}. Isolated inside <student_answer_transcript> delimiters — verify or route to manual marking.`,
+            resolved: false,
+          });
         }
       }),
 
