@@ -37,15 +37,14 @@ The workflow itself reports failures; required checks are what prevent merging t
 Feature branches should merge into `Dev`, then `Dev` into `main`. Revert branches
 are not blocked by the feature-to-main check.
 
-## Known dependency blocker at setup
+## LangGraph dependency security fix
 
-The local pip audit reported `PYSEC-2026-4240` for `langgraph-sdk==0.3.15`, with
-`0.4.4` listed as the fixed version. The currently pinned `langgraph==1.2.0`
-requires an SDK below `0.4`, so upgrading only the SDK would conflict with that
-requirement. Upgrade to a compatible LangGraph/SDK combination and rerun the tests
-before merging. The dependency audit intentionally fails on this finding; it is
-not ignored or configured to continue on error. Backend runtime pins were not
-changed as part of adding CI.
+The initial audit found `PYSEC-2026-4240` in `langgraph-sdk==0.3.15`. Versions
+below `0.4.4` are affected. The original `langgraph==1.2.0` required an SDK below
+`0.4`, preventing a standalone SDK upgrade. Both backend dependency manifests now
+pin the compatible pair `langgraph==1.2.24` and `langgraph-sdk==0.4.14`.
+The dependency audit stays enabled; this advisory is not ignored and failures are
+not configured to continue on error.
 
 Dependabot opens weekly update PRs targeting `Dev` for npm, pip and Actions. Its
 configuration must be present on the repository's default branch to activate.

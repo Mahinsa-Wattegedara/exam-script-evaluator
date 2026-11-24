@@ -6,7 +6,7 @@ FastAPI `0.162.0` backend monolith for the **Exam Script Evaluator** (`ENG-UOM-2
 - **Language:** Python `3.12+`
 - **API Framework:** FastAPI `0.162.0`
 - **Validation & Contracts:** Pydantic `v2` (`extra="forbid"`)
-- **Agent Orchestration:** LangGraph `1.2.0`
+- **Agent Orchestration:** LangGraph `1.2.24` with LangGraph SDK `0.4.14` (security patch update from the original SRS baseline)
 - **ORM & Migrations:** SQLAlchemy `>=2.0.36` + Alembic `>=1.14.0`
 
 ## Quick Start

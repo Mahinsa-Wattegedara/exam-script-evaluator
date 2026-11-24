@@ -4,7 +4,7 @@ Aligned with SRS Section 4.3 & 4.4 (ExternalInterfaces.docx):
 - Python 3.12+
 - FastAPI 0.162.0
 - Pydantic v2 (extra="forbid")
-- LangGraph 1.2.0
+- LangGraph 1.2.24 / SDK 0.4.14
 """
 import os
 from pathlib import Path
