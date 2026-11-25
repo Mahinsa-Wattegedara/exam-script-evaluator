@@ -1,0 +1,51 @@
+{
+  "assessmentTitle": "Object Oriented Programming",
+  "course": "CS",
+  "expectedVersion": 0,
+  "question": {
+    "number": "Q1",
+    "prompt": "Define encapsulation",
+    "maxMarks": 2,
+    "modelAnswerText": "Bundles data and methods; restricts access to state.",
+    "subquestions": [
+      {
+        "id": "q1a",
+        "label": "Q1(a)",
+        "prompt": "Define encapsulation",
+        "originalAnswer": "Bundles data and methods; restricts access to state.",
+        "maxMarks": 2
+      }
+    ],
+    "criteria": [
+      {
+        "subquestionId": "q1a",
+        "sourceExcerpt": "Bundles data and methods",
+        "id": "C1",
+        "description": "Bundles state and methods in a class and controls access.",
+        "maxMarks": 2,
+        "allowedPartialCredits": [
+          0,
+          1,
+          2
+        ],
+        "acceptedAlternatives": [
+          "Combines object state with behaviour and hides internal state."
+        ],
+        "scoringGuide": [
+          {
+            "marks": 0,
+            "description": "Neither bundling nor access control is correct."
+          },
+          {
+            "marks": 1,
+            "description": "Correctly explains either bundling or access control."
+          },
+          {
+            "marks": 2,
+            "description": "Correctly explains both bundling and access control."
+          }
+        ]
+      }
+    ]
+  }
+}

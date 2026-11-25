@@ -325,17 +325,17 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           });
         }
 
-        // Only one region per question per script: if already mapped, update it
-        const existing = d.regions.find((r) => r.scriptId === scriptId && r.questionId === questionId);
-        if (existing) {
-          existing.imageId = imageId;
-          existing.bbox = bbox;
-          existing.sequenceOrder = 1;
-          audit(d, "MAP", `${code(d, scriptId)}: updated crop boundaries for ${qnum(d, questionId)}`);
-        } else {
-          d.regions.push({ id: uid("reg"), scriptId, imageId, questionId, sequenceOrder: 1, bbox });
-          audit(d, "MAP", `${code(d, scriptId)}: region mapped to ${qnum(d, questionId)}`);
-        }
+        // M1-03: Support joining multiple continuation regions in sequence order per question
+        const existingForQ = d.regions.filter((r) => r.scriptId === scriptId && r.questionId === questionId);
+        const nextOrder = existingForQ.length + 1;
+        d.regions.push({ id: uid("reg"), scriptId, imageId, questionId, sequenceOrder: nextOrder, bbox });
+        audit(
+          d,
+          "MAP",
+          nextOrder > 1
+            ? `${code(d, scriptId)}: joined continuation region #${nextOrder} to ${qnum(d, questionId)}`
+            : `${code(d, scriptId)}: region mapped to ${qnum(d, questionId)}`,
+        );
         const s = d.scripts.find((x) => x.id === scriptId);
         if (s) s.mappingConfirmed = false;
       }),
@@ -353,17 +353,22 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
     reassignRegion: (regionId: string, questionId: string) =>
       mutate((d) => {
         const r = d.regions.find((x) => x.id === regionId);
-        if (!r) return;
-        // If the target question already has a region on this script, remove it to enforce 1 question per map
-        const existingForTarget = d.regions.find((x) => x.scriptId === r.scriptId && x.questionId === questionId && x.id !== regionId);
-        if (existingForTarget) {
-          d.regions = d.regions.filter((x) => x.id !== existingForTarget.id);
-        }
+        if (!r || r.questionId === questionId) return;
+        const prevQid = r.questionId;
+        const targetCount = d.regions.filter(
+          (x) => x.scriptId === r.scriptId && x.questionId === questionId && x.id !== regionId,
+        ).length;
         r.questionId = questionId;
-        r.sequenceOrder = 1;
+        r.sequenceOrder = targetCount + 1;
+        d.regions
+          .filter((x) => x.scriptId === r.scriptId && x.questionId === prevQid)
+          .sort((a, b) => a.sequenceOrder - b.sequenceOrder)
+          .forEach((x, idx) => {
+            x.sequenceOrder = idx + 1;
+          });
         const s = d.scripts.find((x) => x.id === r.scriptId);
         if (s) s.mappingConfirmed = false;
-        audit(d, "MAP", `${code(d, r.scriptId)}: corrected mapping to ${qnum(d, questionId)}`);
+        audit(d, "MAP", `${code(d, r.scriptId)}: corrected mapping from ${qnum(d, prevQid)} to ${qnum(d, questionId)}`);
       }),
 
     moveRegion: (regionId: string, dir: -1 | 1) =>
@@ -545,12 +550,26 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     editSpan: (answerId: string, spanId: string, text: string) =>
       mutate((d) => {
-        const v = activeVersion(answerById(d, answerId));
+        const a = answerById(d, answerId);
+        const v = activeVersion(a);
         if (!v || v.approvalStatus !== "PENDING") return;
         const sp = v.spans.find((s) => s.id === spanId);
-        if (sp) {
-          sp.text = text;
-          sp.edited = true;
+        if (!sp) return;
+        sp.text = text;
+        sp.edited = true;
+        v.rawText = versionText(v);
+
+        // Re-evaluate OWASP ASI01 prompt-injection flag on edited line
+        v.flags = v.flags.filter((f) => !(f.type === "PROMPT_INJECTION" && f.spanId === spanId));
+        const inj = detectPromptInjection(text);
+        if (inj) {
+          v.flags.push({
+            id: uid("flag"),
+            type: "PROMPT_INJECTION",
+            spanId,
+            message: `OWASP ASI01 / NFR-04 Alert (Line ${sp.line}): ${inj}. Isolated inside <student_answer_transcript> delimiters — verify or route to manual marking.`,
+            resolved: false,
+          });
         }
       }),
 
@@ -621,8 +640,19 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
             staled += 1;
           }
         });
-        if (prev.length && a.routingStatus === "READY_FOR_AI") {
-          d.runs.push({ id: uid("run-eval"), answerId: a.id, boundTranscriptVersion: v.version, kind: "EVALUATION", status: "QUEUED", isStale: false, createdAt: nowIso() });
+        if (
+          a.routingStatus === "READY_FOR_AI" &&
+          !d.runs.some((r) => r.answerId === a.id && r.boundTranscriptVersion === v.version && !r.isStale)
+        ) {
+          d.runs.push({
+            id: uid("run-eval"),
+            answerId: a.id,
+            boundTranscriptVersion: v.version,
+            kind: "EVALUATION",
+            status: "QUEUED",
+            isStale: false,
+            createdAt: nowIso(),
+          });
         }
         audit(d, "APPROVE", `${code(d, a.scriptId)} ${qnum(d, a.questionId)}: approved transcript v${v.version}${staled ? `; ${staled} downstream run(s) marked stale, new evaluation run queued` : ""}`);
       }),
