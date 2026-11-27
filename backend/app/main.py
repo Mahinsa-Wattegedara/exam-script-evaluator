@@ -14,8 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.schemas.auth import (
     AuthResponseSchema,
+    ForgotPasswordRequestSchema,
+    ForgotPasswordResponseSchema,
     LoginRequestSchema,
     RegisterRequestSchema,
+    ResetPasswordRequestSchema,
+    ResetPasswordResponseSchema,
     SessionVerifyRequestSchema,
     SessionVerifyResponseSchema,
 )
@@ -27,7 +31,12 @@ from app.schemas.module1 import (
 from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
 from app.services.rubric_draft import create_rubric_draft
 from app.services.crypto_service import verify_session_jwt
-from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
+from app.services.supabase_auth import (
+    authenticate_with_supabase,
+    complete_password_reset,
+    register_user_in_supabase,
+    request_password_reset,
+)
 from app.routes.approved_rubrics import router as approved_rubrics_router
 from app.routes.script_storage import router as script_storage_router
 
@@ -189,4 +198,24 @@ async def verify_session_endpoint(payload: SessionVerifyRequestSchema) -> Sessio
     if not user:
         return SessionVerifyResponseSchema(authenticated=False, user=None)
     return SessionVerifyResponseSchema(authenticated=True, user=user)
+
+
+@app.post("/api/v1/auth/forgot-password", response_model=ForgotPasswordResponseSchema)
+async def forgot_password_endpoint(payload: ForgotPasswordRequestSchema) -> JSONResponse:
+    ok, message, error = await request_password_reset(payload.identifier, payload.origin)
+    if not ok:
+        body = ForgotPasswordResponseSchema(ok=False, error=error or "Could not process password reset request.")
+        return JSONResponse(status_code=400, content=body.model_dump())
+    body = ForgotPasswordResponseSchema(ok=True, message=message)
+    return JSONResponse(status_code=200, content=body.model_dump())
+
+
+@app.post("/api/v1/auth/reset-password", response_model=ResetPasswordResponseSchema)
+async def reset_password_endpoint(payload: ResetPasswordRequestSchema) -> JSONResponse:
+    ok, message, error = await complete_password_reset(payload.token, payload.newPassword)
+    if not ok:
+        body = ResetPasswordResponseSchema(ok=False, error=error or "Could not reset password.")
+        return JSONResponse(status_code=400, content=body.model_dump())
+    body = ResetPasswordResponseSchema(ok=True, message=message)
+    return JSONResponse(status_code=200, content=body.model_dump())
 

@@ -32,6 +32,7 @@ type Ctx = {
   login: (username: string, password: string, role: UserRole) => Promise<{ ok: boolean; error?: string }>;
   register: (input: {
     username: string;
+    email?: string;
     password: string;
     role: UserRole;
     displayName?: string;
@@ -1131,6 +1132,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(
     async (input: {
       username: string;
+      email?: string;
       password: string;
       role: UserRole;
       displayName?: string;
