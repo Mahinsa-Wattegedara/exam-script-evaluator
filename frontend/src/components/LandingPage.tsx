@@ -404,25 +404,6 @@ export function LandingPage({ onLogin }: LandingPageProps) {
         </div>
       </section>
 
-      {/* 7. Final CTA Section */}
-      <section className="bg-[#14123b] text-white py-16 px-6 lg:px-16 border-t border-indigo-950">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <h3 className="text-2xl font-bold text-white">Continue in your workspace</h3>
-            <p className="text-sm text-[rgba(224,227,255,0.9)] mt-1">
-              Log in with your work account. Role is set on your profile.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onLogin}
-            className="px-8 py-3.5 rounded-xl font-semibold text-base bg-[#4338ca] text-white hover:bg-indigo-700 transition-all shadow-md shrink-0 cursor-pointer"
-          >
-            Log in
-          </button>
-        </div>
-      </section>
-
       {/* 8. Public / Marketing Footer */}
       <footer className="bg-[#14123b] text-slate-400 py-12 px-6 lg:px-16 border-t border-indigo-950/80 text-xs">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start justify-between gap-8">
