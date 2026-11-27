@@ -27,6 +27,16 @@ export function sanitizeCriterionDescription(description?: string | null): strin
   return BOILERPLATE_CRITERION_RE.test(raw.trim()) ? "" : raw;
 }
 
+export function hasMarkingScheme(state: State): boolean {
+  return state.rubrics.length > 0 || state.assessment.questions.some(question => !isPlaceholderPrompt(question.prompt));
+}
+
+export function questionRemovalBlock(state: State, questionId: string): string | undefined {
+  if (state.regions.some(region => region.questionId === questionId) || state.answers.some(answer => answer.questionId === questionId)) {
+    return "This question is linked to a student script.";
+  }
+}
+
 type Ctx = {
   state: State;
   user: SessionUser | null;
@@ -101,7 +111,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         d.assessment.course = course;
       }),
 
-    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean }) => {
+    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean; reviewId?: string }) => {
       const state = getState();
       if (state.scripts.length || state.answers.length || state.rubrics.some((r) => r.approved)) {
         return { ok: false, error: "This assessment has uploaded student scripts or approved rubrics. Its questions cannot be replaced by an import." };
@@ -112,6 +122,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       if (!items.length) return { ok: false, error: "No questions were found to import." };
       mutate((d) => {
         d.assessment.questions = items.map((item) => item.question);
+        d.assessment.rubricReviewId = options?.reviewId;
         d.rubrics = items.map((item) => ({
           version: 1,
           questionId: item.question.id,
@@ -121,6 +132,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           approved: false,
         }));
         audit(d, "IMPORT_MARKING_SCHEME", `Imported ${items.length} question drafts${options?.replaceDrafts ? "; replaced previous drafts after confirmation" : ""}`);
+      });
+      return { ok: true };
+    },
+
+    resetMarkingScheme: (databaseArchived: boolean) => {
+      const state = getState();
+      if (state.scripts.length || state.answers.length) {
+        return { ok: false, error: "This assessment has uploaded student work." };
+      }
+      if (state.rubrics.some(rubric => rubric.approved && rubric.rubricId) && !databaseArchived) {
+        return { ok: false, error: "Archive the saved rubric versions before resetting the marking scheme." };
+      }
+      mutate(d => {
+        d.assessment.questions = DEFAULT_QUESTIONS.map(question => ({ ...question }));
+        delete d.assessment.rubricReviewId;
+        d.rubrics = [];
+        audit(d, "RESET_MARKING_SCHEME", "Reset the marking scheme for this assessment");
       });
       return { ok: true };
     },
@@ -161,11 +189,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         }
       }),
 
-    deleteQuestion: (questionId: string) =>
+    deleteQuestion: (questionId: string, databaseArchived = false) => {
+      const state = getState();
+      const question = state.assessment.questions.find(item => item.id === questionId);
+      if (!question) return { ok: false, error: "This question has already been removed." };
+      const error = questionRemovalBlock(state, questionId);
+      if (error) return { ok: false, error };
+      if (state.rubrics.some(rubric => rubric.questionId === questionId && rubric.approved && rubric.rubricId) && !databaseArchived) {
+        return { ok: false, error: "Archive the saved rubric versions before removing this question." };
+      }
       mutate((d) => {
         d.assessment.questions = d.assessment.questions.filter((x) => x.id !== questionId);
         d.rubrics = d.rubrics.filter((r) => r.questionId !== questionId);
-      }),
+        if (!d.assessment.questions.length) delete d.assessment.rubricReviewId;
+        audit(d, "DELETE_QUESTION", `Removed ${question.number} from the marking scheme`);
+      });
+      return { ok: true };
+    },
 
     addModelAnswerImage: (questionId: string, image: ModelAnswerImage) =>
       mutate((d) => {
@@ -986,7 +1026,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 },
           );
         }
-        if (!s.assessment.questions || s.assessment.questions.length === 0) {
+        if (!s.assessment.questions) {
           s.assessment.questions = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
         } else {
           s.assessment.questions = s.assessment.questions.map((q) => ({

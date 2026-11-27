@@ -222,6 +222,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
   const isTeacher = user.role === "TEACHER";
   const isAdmin = user.role === "ADMIN";
+  const isMarkingScheme = path === "/rubric";
   const activeTab = searchParams.get("tab") || "dashboard";
   const pendingReviews = state.answers.filter((a) => a.routingStatus === "NEEDS_REVIEW").length;
   const studentRequestsCount = user.studentId
@@ -249,7 +250,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-[#f5f6fa]">
       {/* FIGMA XEYNERGY SIDEBAR */}
-      <aside className="sticky top-0 flex h-screen w-[264px] shrink-0 flex-col bg-gradient-to-b from-[#14123b] via-[#14123b] to-[#2e298f] text-white z-30 shadow-lg">
+      <aside className={`sticky top-0 flex h-screen w-[264px] shrink-0 flex-col bg-gradient-to-b from-[#14123b] via-[#14123b] to-[#2e298f] text-white z-30 shadow-lg ${isMarkingScheme ? "max-md:hidden" : ""}`}>
         {/* Top Brand & User Card Section */}
         <div className="flex flex-col items-center gap-3 p-5 pb-3">
           {/* Brand Logo */}
@@ -348,7 +349,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       {/* MAIN CONTAINER */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* FIGMA XEYNERGY TOP BAR */}
-        <header className="sticky top-0 z-20 flex h-18 lg:h-20 items-center justify-between border-b border-[#e4e7ef] bg-white px-8 shadow-2xs">
+        <header className={`sticky top-0 z-20 flex h-18 lg:h-20 items-center justify-between border-b border-[#e4e7ef] bg-white px-8 shadow-2xs ${isMarkingScheme ? "max-md:gap-2 max-md:px-4" : ""}`}>
           {/* Dynamic Breadcrumbs */}
           {isAdmin ? (
             <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs sm:text-sm font-medium">
@@ -412,7 +413,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           {/* Search, Notifications & Workspace Indicator */}
           <div className="flex items-center gap-3">
             {/* Search Box */}
-            <div className="relative hidden sm:flex items-center">
+            <div className={`relative hidden items-center ${isMarkingScheme ? "md:flex" : "sm:flex"}`}>
               <input
                 type="text"
                 placeholder="Search..."
@@ -502,7 +503,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Role Label */}
-            <span className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-[#4338ca]">
+            <span className={`rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-[#4338ca] ${isMarkingScheme ? "max-md:hidden" : ""}`}>
               {isTeacher ? "Teacher workspace" : isAdmin ? "Administrator workspace" : "Student workspace"}
             </span>
 
@@ -525,7 +526,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* PAGE CONTENT */}
-        <main className="flex-1 p-6 lg:p-8">
+        <main className={`flex-1 p-6 lg:p-8 ${isMarkingScheme ? "max-md:p-4" : ""}`}>
           {blockedFromTeacherRoute ? (
             <div className="mx-auto max-w-md space-y-4 py-12">
               <Alert tone="red" title="Access restricted">
