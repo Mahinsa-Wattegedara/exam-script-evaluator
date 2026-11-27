@@ -121,3 +121,34 @@ After a conflict or uncertain network result, load and review the saved version 
 submitting again. Version numbers come from Supabase, never a browser counter.
 Drafts and reference image files remain in the browser; the structured rubric and
 original answer text are persisted by these endpoints.
+
+## Rubric agent review
+
+Set `RUBRIC_REVIEW_DATABASE_URL` on the backend to enable durable review. Use a
+PostgreSQL direct connection or session pooler. Run
+`python -m app.services.rubric_review` from `backend` to set up the LangGraph
+checkpoint tables in the `rubric_review` schema. The database role needs schema
+creation permission for setup and read/write access to that schema at runtime.
+Keep this schema private.
+
+Sign in as a teacher and generate a draft for the assessment. The agent pauses
+with a review ID. Approve each question in the editor. After every save, the editor
+checks the review against Supabase. The agent resumes once every drafted question
+has a new approval for the same assessment and stores the exact rubric IDs and
+versions. Use **Check approval progress** to retry this check after a network error.
+The review checkpoint stores question IDs and approved rubric references. The
+editor retains draft changes in its existing browser storage.
+
+## Reset demo schemes
+
+Apply `003_module2_demo_scheme_reset.sql` after migration 002 in the demo
+Supabase project. **Remove question** archives saved approvals for that question.
+**Reset marking scheme** archives the assessment's active scheme and clears the
+current draft and source from the editor. Archived versions keep their original
+IDs. A new upload can reuse labels such as Q1 and starts at version 1 with new
+rubric IDs. The reset is for assessments without uploaded student work, and
+individual removal is available for questions without linked answers or scores.
+
+`RUBRIC_MAX_ATTEMPTS` defaults to `2` and accepts `1` through `3`. Set
+`RUBRIC_FALLBACK_MODEL` to a model supported by the same provider to use it on the
+final correction attempt. This is separate from provider connection fallbacks.
