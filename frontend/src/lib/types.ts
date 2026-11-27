@@ -79,6 +79,9 @@ export type ScriptImage = {
   height: number;
   sampleKey?: string; // used by the mock OCR to return realistic text
   blobKey?: string; // uploaded files are kept in IndexedDB (frontend demo only)
+  storagePath?: string; // Supabase private bucket object path (masked copy only, NFR-02)
+  storageSynced?: boolean;
+  storageError?: string;
 };
 
 export type BatchStatus = "COMPLETE" | "PARTIAL_FAILURE";

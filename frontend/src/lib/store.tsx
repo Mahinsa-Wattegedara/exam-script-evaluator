@@ -2,7 +2,7 @@
 // Client-side store for the frontend demo. All data is mock data held in the browser
 // (localStorage + IndexedDB for uploaded files). No backend calls are made.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
+import { clearBlobs, createMaskedCopy, getBlob, imageToMaskedBase64 } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
 import type { ImportedQuestion } from "./marking-scheme-import";
@@ -346,14 +346,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         s.pagesConfirmed = false;
       }),
 
-    removePage: (scriptId: string, imageId: string) =>
+    removePage: (scriptId: string, imageId: string) => {
+      const targetScript = getState().scripts.find((x) => x.id === scriptId);
+      const targetImg = targetScript?.images.find((i) => i.id === imageId);
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId)!;
         s.images = s.images.filter((i) => i.id !== imageId);
         orderedImages(s).forEach((im, i) => (im.pageNumber = i + 1));
         d.regions = d.regions.filter((r) => r.imageId !== imageId);
         audit(d, "REMOVE_PAGE", `Removed a page from ${s.pseudonymousCode}`);
-      }),
+      });
+      if (targetScript && targetImg?.storageSynced) {
+        fetch(
+          `/api/storage/masked?scriptCode=${encodeURIComponent(targetScript.pseudonymousCode)}&imageId=${encodeURIComponent(imageId)}`,
+          { method: "DELETE" },
+        ).catch(() => undefined);
+      }
+    },
 
     confirmPages: (scriptId: string) =>
       mutate((d) => {
@@ -363,8 +372,10 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       }),
 
     applyMask: async (scriptId: string, imageId: string, rect: Rect) => {
-      const im = getState().scripts.find((s) => s.id === scriptId)?.images.find((i) => i.id === imageId);
-      if (!im) return;
+      const st = getState();
+      const sc = st.scripts.find((s) => s.id === scriptId);
+      const im = sc?.images.find((i) => i.id === imageId);
+      if (!sc || !im) return;
       const maskedUrl = await createMaskedCopy(im.originalUrl, rect);
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId)!;
@@ -372,27 +383,127 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         t.maskRect = rect;
         t.maskedUrl = maskedUrl;
         t.maskStatus = "MASKED";
+        t.storageSynced = false;
+        t.storageError = undefined;
         audit(d, "MASK", `Masked identifying header on ${s.pseudonymousCode} page ${t.pageNumber}`);
       });
+      // Sync ONLY the header-masked copy to Supabase Storage (NFR-02: original stays in browser)
+      const [header, base64Data = ""] = maskedUrl.split(",", 2);
+      const mimeType = header?.includes("image/png") ? "image/png" : "image/jpeg";
+      try {
+        const res = await fetch("/api/storage/masked", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scriptCode: sc.pseudonymousCode,
+            imageId: im.id,
+            assessmentId: st.assessment.id,
+            pageNumber: im.pageNumber,
+            maskStatus: "MASKED",
+            mimeType,
+            base64Data,
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as { ok?: boolean; objectPath?: string; error?: string } | null;
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (!t) return;
+          if (res.ok && data?.ok) {
+            t.storageSynced = true;
+            t.storagePath = data.objectPath;
+            t.storageError = undefined;
+            audit(d, "STORAGE_SYNC", `Saved masked copy of ${sc.pseudonymousCode} page ${t.pageNumber} to Supabase Storage`);
+          } else {
+            t.storageSynced = false;
+            t.storageError = data?.error || `Storage sync failed (${res.status})`;
+          }
+        });
+      } catch {
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (t) {
+            t.storageSynced = false;
+            t.storageError = "Could not reach Supabase storage service.";
+          }
+        });
+      }
     },
 
-    setNoHeader: (scriptId: string, imageId: string) =>
+    setNoHeader: async (scriptId: string, imageId: string) => {
+      const st = getState();
+      const sc = st.scripts.find((s) => s.id === scriptId);
+      const im = sc?.images.find((i) => i.id === imageId);
+      if (!sc || !im) return;
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId)!;
         const t = s.images.find((i) => i.id === imageId)!;
         t.maskStatus = "NO_HEADER";
         t.maskRect = undefined;
         t.maskedUrl = undefined;
+        t.storageSynced = false;
+        t.storageError = undefined;
         audit(d, "MASK", `Marked ${s.pseudonymousCode} page ${t.pageNumber} as having no identifying header`);
-      }),
+      });
+      if (!im.originalUrl) return;
+      try {
+        const { mimeType, base64Data } = await imageToMaskedBase64({ ...im, maskStatus: "NO_HEADER", maskRect: undefined, maskedUrl: undefined });
+        const res = await fetch("/api/storage/masked", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scriptCode: sc.pseudonymousCode,
+            imageId: im.id,
+            assessmentId: st.assessment.id,
+            pageNumber: im.pageNumber,
+            maskStatus: "NO_HEADER",
+            mimeType: mimeType === "image/png" ? "image/png" : "image/jpeg",
+            base64Data,
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as { ok?: boolean; objectPath?: string; error?: string } | null;
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (!t) return;
+          if (res.ok && data?.ok) {
+            t.storageSynced = true;
+            t.storagePath = data.objectPath;
+            t.storageError = undefined;
+            audit(d, "STORAGE_SYNC", `Saved no-header copy of ${sc.pseudonymousCode} page ${t.pageNumber} to Supabase Storage`);
+          } else {
+            t.storageSynced = false;
+            t.storageError = data?.error || `Storage sync failed (${res.status})`;
+          }
+        });
+      } catch {
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (t) {
+            t.storageSynced = false;
+            t.storageError = "Could not reach Supabase storage service.";
+          }
+        });
+      }
+    },
 
-    clearMask: (scriptId: string, imageId: string) =>
+    clearMask: (scriptId: string, imageId: string) => {
+      const sc = getState().scripts.find((x) => x.id === scriptId);
+      const im = sc?.images.find((i) => i.id === imageId);
       mutate((d) => {
         const t = d.scripts.find((x) => x.id === scriptId)!.images.find((i) => i.id === imageId)!;
         t.maskStatus = "PENDING";
         t.maskRect = undefined;
         t.maskedUrl = undefined;
-      }),
+        t.storageSynced = false;
+        t.storagePath = undefined;
+        t.storageError = undefined;
+      });
+      if (sc && im?.storageSynced) {
+        fetch(
+          `/api/storage/masked?scriptCode=${encodeURIComponent(sc.pseudonymousCode)}&imageId=${encodeURIComponent(imageId)}`,
+          { method: "DELETE" },
+        ).catch(() => undefined);
+      }
+    },
 
     addRegion: (scriptId: string, imageId: string, questionId: string, bbox: Rect) =>
       mutate((d) => {

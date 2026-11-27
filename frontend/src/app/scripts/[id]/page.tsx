@@ -571,6 +571,23 @@ export default function ScriptWorkspacePage() {
                       {imgs.filter((i) => i.maskStatus !== "PENDING").length} of {imgs.length} completed
                     </span>
                   </div>
+                  {currentImg.maskStatus !== "PENDING" && (
+                    <div
+                      className={`rounded-lg border px-2.5 py-2 text-[11px] ${
+                        currentImg.storageSynced
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : currentImg.storageError
+                            ? "border-amber-200 bg-amber-50 text-amber-800"
+                            : "border-slate-200 bg-slate-50 text-slate-600"
+                      }`}
+                    >
+                      {currentImg.storageSynced
+                        ? "✓ Masked copy synced to private Supabase Storage (original stays local)."
+                        : currentImg.storageError
+                          ? `Cloud sync pending: ${currentImg.storageError}`
+                          : "Syncing masked copy to Supabase Storage…"}
+                    </div>
+                  )}
                   <Button
                     variant="success"
                     className="w-full justify-center py-2.5 text-xs font-semibold shadow-xs"

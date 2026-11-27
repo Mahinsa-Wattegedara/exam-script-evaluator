@@ -32,7 +32,9 @@ function prefixOf(name: string) {
 export default function UploadPage() {
   const { state, actions } = useStore();
   const [staged, setStaged] = useState<Staged[]>([]);
-  const [mode, setMode] = useState<"prefix" | "single">("prefix");
+  // Default: every page staged in this batch belongs to ONE script, so differently named
+  // page photos (e.g. IMG_0412.jpg, IMG_0413.jpg) never split a continuing answer.
+  const [mode, setMode] = useState<"prefix" | "single">("single");
   const [target, setTarget] = useState<string>("new");
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [realIds, setRealIds] = useState<Record<string, string>>({});
@@ -64,7 +66,14 @@ export default function UploadPage() {
 
   async function addFiles(files: File[], sampleKeys: (string | undefined)[] = []) {
     const out = await Promise.all(files.map((f, i) => validate(f, sampleKeys[i])));
-    setStaged((p) => [...p, ...out]);
+    // Starting a new batch after a completed upload: clear finished rows and pseudonym codes
+    // so the next batch becomes a fresh script instead of reusing the previous code.
+    if (summary) {
+      setCodes({});
+      setStaged((p) => [...p.filter((s) => s.state !== "done"), ...out]);
+    } else {
+      setStaged((p) => [...p, ...out]);
+    }
     setSummary(null);
   }
 
@@ -167,6 +176,18 @@ export default function UploadPage() {
 
   const validCount = staged.filter((s) => !s.error && s.state !== "done").length;
   const attentionCount = staged.filter((s) => s.error || s.state === "failed").length;
+  const pendingGroups = groups.filter(([, items]) => items.some((s) => !s.error && s.state !== "done"));
+  const existingPages = mode === "single" && target !== "new" ? state.scripts.find((s) => s.id === target)?.images.length ?? 0 : 0;
+  const oversizedGroup = groups.find(
+    ([, items]) => existingPages + items.filter((s) => !s.error && s.state !== "done").length > MAX_IMAGES_PER_SCRIPT,
+  );
+  const tooManyScripts = mode === "prefix" && state.scripts.length + pendingGroups.length > MAX_SCRIPTS;
+  const groupLabel = (key: string) => {
+    const c = codeFor(key);
+    if (c) return c;
+    if (mode === "single" && key === "new") return "New script";
+    return key;
+  };
 
   const targetScript = useMemo(() => {
     if (!summary || !summary.scripts.length) return null;
@@ -301,6 +322,71 @@ export default function UploadPage() {
 
       {/* Script Files Table Card (Figma 121:3180) */}
       <div className="overflow-hidden rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white shadow-sm">
+        {/* Page grouping control (M1-01 / M1-03 continuation safety) */}
+        <div className="flex flex-col gap-3 border-b border-[color:var(--x-border,#e4e7ef)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-[color:var(--x-ink,#111827)]">How should these pages be grouped?</div>
+            <p className="mt-0.5 text-xs text-[color:var(--x-secondary,#4b5563)]">
+              {mode === "single"
+                ? "All staged pages belong to one student's script, in the order shown. Answers that continue onto the next page stay together."
+                : "Pages are split into separate scripts by filename prefix (e.g. scriptA_p1.jpg + scriptA_p2.jpg → one script)."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="inline-flex rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-[color:var(--x-bg,#f5f6fa)] p-1">
+              <button
+                type="button"
+                onClick={() => setMode("single")}
+                disabled={busy}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  mode === "single"
+                    ? "bg-white text-[color:var(--x-primary700,#3730a3)] shadow-sm"
+                    : "text-[color:var(--x-secondary,#4b5563)] hover:text-[color:var(--x-ink,#111827)]"
+                }`}
+              >
+                One script (all pages)
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("prefix")}
+                disabled={busy}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  mode === "prefix"
+                    ? "bg-white text-[color:var(--x-primary700,#3730a3)] shadow-sm"
+                    : "text-[color:var(--x-secondary,#4b5563)] hover:text-[color:var(--x-ink,#111827)]"
+                }`}
+              >
+                Split by filename
+              </button>
+            </div>
+            {mode === "single" && (
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                disabled={busy}
+                className="h-9 rounded-xl border border-[color:var(--x-border,#e4e7ef)] bg-white px-3 text-xs font-medium text-[color:var(--x-ink,#111827)]"
+                title="Create a new script or append these pages to an existing script"
+              >
+                <option value="new">New script</option>
+                {state.scripts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    Add pages to {s.pseudonymousCode} ({s.images.length} page{s.images.length === 1 ? "" : "s"})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+        {oversizedGroup && (
+          <div className="border-b border-amber-200 bg-amber-50 px-6 py-2.5 text-xs font-medium text-amber-900">
+            {groupLabel(oversizedGroup[0])} has more than {MAX_IMAGES_PER_SCRIPT} pages. A script can hold at most {MAX_IMAGES_PER_SCRIPT} page images — remove extra pages or switch to “Split by filename”.
+          </div>
+        )}
+        {tooManyScripts && (
+          <div className="border-b border-amber-200 bg-amber-50 px-6 py-2.5 text-xs font-medium text-amber-900">
+            This batch would exceed the {MAX_SCRIPTS}-script limit for the assessment.
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-[color:var(--x-border,#e4e7ef)] bg-slate-50/70 text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
@@ -324,7 +410,7 @@ export default function UploadPage() {
               ) : (
                 groups.map(([key, items]) => {
                   const hasError = items.some((i) => i.error || i.state === "failed");
-                  const scriptCode = codeFor(key) || key;
+                  const scriptCode = groupLabel(key);
                   return (
                     <Fragment key={key}>
                       {/* Script Group Header (Figma 121:3189) */}
@@ -452,7 +538,8 @@ export default function UploadPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
         <div>
           <p className="font-['Inter'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
-            {validCount} script{validCount === 1 ? "" : "s"} ready{attentionCount > 0 ? ` · ${attentionCount} file(s) need attention` : ""}
+            {validCount} page{validCount === 1 ? "" : "s"} ready → {pendingGroups.length} script{pendingGroups.length === 1 ? "" : "s"}
+            {attentionCount > 0 ? ` · ${attentionCount} file(s) need attention` : ""}
           </p>
           {summary && summary.scripts.length > 0 && targetScript && (
             <p className="text-xs text-emerald-700 mt-0.5 font-medium">
@@ -471,7 +558,7 @@ export default function UploadPage() {
           ) : (
             <button
               onClick={upload}
-              disabled={busy || validCount === 0}
+              disabled={busy || validCount === 0 || !!oversizedGroup || tooManyScripts}
               className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--x-primary600,#4338ca)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>

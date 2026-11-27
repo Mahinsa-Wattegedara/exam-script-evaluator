@@ -1,9 +1,21 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Alert, Button, Modal } from "@/components/ui";
+import { formatBytes } from "@/lib/image-utils";
 import { useStore } from "@/lib/store";
 import type { DemoAccount, RuntimeSettings } from "@/lib/types";
+
+const PURGE_CONFIRMATION = "DELETE ALL EXAM FILES";
+
+type StorageSummary = {
+  bucket: string;
+  fileCount: number;
+  scriptCount: number;
+  totalBytes: number;
+  lastPurgeAt: string | null;
+  lastPurgeBy: string | null;
+};
 
 const ACCOUNTS_KEY = "scriptx-admin-demo-accounts-v1";
 const RUNTIME_KEY = "scriptx-admin-runtime-v1";
@@ -38,11 +50,21 @@ function AdminDashboardContent() {
   const activeTab: "dashboard" | "accounts" | "runtime" =
     rawTab === "accounts" ? "accounts" : rawTab === "runtime" ? "runtime" : "dashboard";
 
-  const { user } = useStore();
+  const { user, actions } = useStore();
 
   const [accounts, setAccounts] = useState<DemoAccount[]>(DEFAULT_DEMO_ACCOUNTS);
   const [runtime, setRuntime] = useState<RuntimeSettings>(DEFAULT_RUNTIME);
   const [hydrated, setHydrated] = useState(false);
+
+  // Supabase exam storage state
+  const [storageSummary, setStorageSummary] = useState<StorageSummary | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirmText, setPurgeConfirmText] = useState("");
+  const [purgeReason, setPurgeReason] = useState("Exams completed and marks released");
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [purgeFeedback, setPurgeFeedback] = useState<{ tone: "green" | "red"; text: string } | null>(null);
 
   // Accounts modal state
   const [addOpen, setAddOpen] = useState(false);
@@ -145,6 +167,78 @@ function AdminDashboardContent() {
     setEditingAccount(null);
   }
 
+  const loadStorageSummary = useCallback(async () => {
+    setStorageLoading(true);
+    setStorageError(null);
+    try {
+      const res = await fetch("/api/admin/storage/summary", { cache: "no-store" });
+      const data = (await res.json().catch(() => null)) as (StorageSummary & { ok?: boolean; error?: string }) | null;
+      if (!res.ok || !data?.ok) {
+        setStorageError(data?.error || `Could not load storage summary (${res.status})`);
+        setStorageSummary(null);
+      } else {
+        setStorageSummary({
+          bucket: data.bucket,
+          fileCount: data.fileCount,
+          scriptCount: data.scriptCount,
+          totalBytes: data.totalBytes,
+          lastPurgeAt: data.lastPurgeAt,
+          lastPurgeBy: data.lastPurgeBy,
+        });
+      }
+    } catch {
+      setStorageError("Could not reach backend exam storage service.");
+      setStorageSummary(null);
+    } finally {
+      setStorageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "dashboard" || activeTab === "runtime") {
+      loadStorageSummary();
+    }
+  }, [activeTab, loadStorageSummary]);
+
+  async function handlePurgeAll() {
+    if (purgeConfirmText.trim() !== PURGE_CONFIRMATION) return;
+    setPurgeBusy(true);
+    setPurgeFeedback(null);
+    try {
+      const res = await fetch("/api/admin/storage/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirm: purgeConfirmText.trim(),
+          reason: purgeReason.trim(),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        filesDeleted?: number;
+        bytesDeleted?: number;
+        error?: string;
+      } | null;
+      if (!res.ok || !data?.ok) {
+        setPurgeFeedback({ tone: "red", text: data?.error || `Storage purge failed (${res.status})` });
+        return;
+      }
+      // Also wipe local browser script state & IndexedDB files
+      await actions.reset();
+      setPurgeOpen(false);
+      setPurgeConfirmText("");
+      setPurgeFeedback({
+        tone: "green",
+        text: `Cleared ${data.filesDeleted ?? 0} stored file(s) (${formatBytes(data.bytesDeleted ?? 0)}) from Supabase Storage and reset local browser exam data.`,
+      });
+      await loadStorageSummary();
+    } catch {
+      setPurgeFeedback({ tone: "red", text: "Could not reach backend storage purge endpoint." });
+    } finally {
+      setPurgeBusy(false);
+    }
+  }
+
   function handleSaveRuntime(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -205,9 +299,12 @@ function AdminDashboardContent() {
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[#e4e7ef] bg-white p-5 sm:p-6 shadow-2xs">
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-[#111827]">Runtime and retention</h2>
+              <h2 className="text-base font-semibold text-[#111827]">Runtime, retention &amp; exam storage</h2>
               <p className="text-sm text-[#6b7280]">
                 Data is kept for {runtime.retentionDays} days after an assessment closes.
+                {storageSummary
+                  ? ` Currently ${storageSummary.fileCount} masked file(s) (${formatBytes(storageSummary.totalBytes)}) stored in Supabase.`
+                  : ""}
               </p>
             </div>
             <button
@@ -488,31 +585,111 @@ function AdminDashboardContent() {
       </div>
 
       {/* Retention and Deletion Card */}
-      <div className="rounded-2xl border border-[#e4e7ef] bg-white p-6 space-y-3 shadow-2xs">
-        <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[#111827]">
-          Retention and deletion
-        </h2>
-        <div className="flex flex-wrap items-center gap-2 text-base text-[#4b5563]">
-          <label htmlFor="retention-days-select">Retain data after assessment closure —</label>
-          <select
-            id="retention-days-select"
-            value={runtime.retentionDays}
-            onChange={(e) => {
-              setRuntimeSavedMsg(null);
-              setRuntime((prev) => ({ ...prev, retentionDays: Number(e.target.value) }));
-            }}
-            className="rounded-lg border border-[#e4e7ef] bg-white px-2.5 py-1 text-sm font-semibold text-[#111827] focus:border-[#4338ca] focus:outline-none cursor-pointer"
-          >
-            {RETENTION_OPTIONS.map((days) => (
-              <option key={days} value={days}>
-                {days} days
-              </option>
-            ))}
-          </select>
+      <div className="rounded-2xl border border-[#e4e7ef] bg-white p-6 space-y-5 shadow-2xs">
+        <div className="space-y-3">
+          <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[#111827]">
+            Retention and deletion
+          </h2>
+          <div className="flex flex-wrap items-center gap-2 text-base text-[#4b5563]">
+            <label htmlFor="retention-days-select">Retain data after assessment closure —</label>
+            <select
+              id="retention-days-select"
+              value={runtime.retentionDays}
+              onChange={(e) => {
+                setRuntimeSavedMsg(null);
+                setRuntime((prev) => ({ ...prev, retentionDays: Number(e.target.value) }));
+              }}
+              className="rounded-lg border border-[#e4e7ef] bg-white px-2.5 py-1 text-sm font-semibold text-[#111827] focus:border-[#4338ca] focus:outline-none cursor-pointer"
+            >
+              {RETENTION_OPTIONS.map((days) => (
+                <option key={days} value={days}>
+                  {days} days
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-sm text-[#6b7280]">
+            Authorized deletion removes active scripts and derived content within 24 hours after the retention window.
+          </p>
         </div>
-        <p className="text-sm text-[#6b7280]">
-          Authorized deletion removes active scripts and derived content within 24 hours after the retention window.
-        </p>
+
+        {/* Exam Script Storage (Supabase) & Post-Exam Purge */}
+        <div className="border-t border-[#e4e7ef] pt-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#111827]">
+                Exam script storage (Supabase private bucket)
+              </h3>
+              <p className="text-xs text-[#6b7280] mt-0.5">
+                Stores only header-masked script copies (NFR-02). Clear all stored files once exams conclude and marks are released.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadStorageSummary}
+              disabled={storageLoading}
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-[#e4e7ef] bg-white px-3.5 text-xs font-semibold text-[#374151] hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+            >
+              {storageLoading ? "Refreshing…" : "Refresh status"}
+            </button>
+          </div>
+
+          {purgeFeedback && (
+            <Alert tone={purgeFeedback.tone} title={purgeFeedback.tone === "green" ? "Storage cleared" : "Purge failed"}>
+              {purgeFeedback.text}
+            </Alert>
+          )}
+
+          {storageError ? (
+            <Alert tone="amber" title="Storage status unavailable">
+              {storageError}
+            </Alert>
+          ) : storageSummary ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="text-xs font-medium text-slate-500">Stored masked pages</div>
+                <div className="mt-1 text-2xl font-bold text-[#111827]">{storageSummary.fileCount}</div>
+                <div className="mt-0.5 text-[11px] font-mono text-slate-500">{storageSummary.bucket}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="text-xs font-medium text-slate-500">Scripts in storage</div>
+                <div className="mt-1 text-2xl font-bold text-[#111827]">{storageSummary.scriptCount}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">Pseudonymous scripts</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="text-xs font-medium text-slate-500">Total size</div>
+                <div className="mt-1 text-2xl font-bold text-[#111827]">{formatBytes(storageSummary.totalBytes)}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">
+                  {storageSummary.lastPurgeAt
+                    ? `Last cleared by ${storageSummary.lastPurgeBy || "admin"}`
+                    : "Never purged yet"}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-slate-500">Loading Supabase storage status…</div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
+            <div className="space-y-0.5">
+              <div className="text-sm font-semibold text-rose-950">Clear all exam files &amp; storage</div>
+              <p className="text-xs text-rose-800">
+                Permanently deletes every masked script image in Supabase Storage, clears the Module 1 file index, and resets local browser script data. Approved rubrics and user accounts are not deleted.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPurgeConfirmText("");
+                setPurgeFeedback(null);
+                setPurgeOpen(true);
+              }}
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl bg-rose-600 px-4 text-xs font-semibold text-white shadow-xs hover:bg-rose-700 transition cursor-pointer"
+            >
+              Clear all exam files…
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Submit Action */}
@@ -524,6 +701,58 @@ function AdminDashboardContent() {
           Save settings
         </button>
       </div>
+
+      {/* Purge Confirmation Modal */}
+      <Modal
+        open={purgeOpen}
+        title="Clear all exam files & storage"
+        onClose={() => {
+          if (!purgeBusy) setPurgeOpen(false);
+        }}
+      >
+        <div className="space-y-4">
+          <Alert tone="red" title="Irreversible action">
+            This will permanently delete all masked script files from Supabase bucket{" "}
+            <code className="font-mono font-semibold">{storageSummary?.bucket || "exam-scripts-masked"}</code>, wipe the
+            Module 1 file index, and clear local browser script data. An audit record of this purge will be saved.
+          </Alert>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Reason (recorded in audit log)</label>
+            <input
+              type="text"
+              value={purgeReason}
+              onChange={(e) => setPurgeReason(e.target.value)}
+              placeholder="e.g. Semester 1 exams finished and marks released"
+              className="w-full h-10 rounded-xl border border-[#e4e7ef] px-3 text-sm text-[#111827] focus:border-rose-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Type <span className="font-mono text-rose-700">{PURGE_CONFIRMATION}</span> to confirm
+            </label>
+            <input
+              type="text"
+              value={purgeConfirmText}
+              onChange={(e) => setPurgeConfirmText(e.target.value)}
+              placeholder={PURGE_CONFIRMATION}
+              className="w-full h-10 rounded-xl border border-[#e4e7ef] px-3 font-mono text-sm text-[#111827] focus:border-rose-500 focus:outline-none"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button type="button" variant="secondary" disabled={purgeBusy} onClick={() => setPurgeOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={purgeBusy || purgeConfirmText.trim() !== PURGE_CONFIRMATION}
+              onClick={handlePurgeAll}
+            >
+              {purgeBusy ? "Clearing storage…" : "Confirm clear all"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </form>
   );
 }
