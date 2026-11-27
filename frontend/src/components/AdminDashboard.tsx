@@ -270,7 +270,7 @@ function AdminDashboardContent() {
             />
           </div>
           <div className="min-w-0">
-            <h1 className="font-['Plus_Jakarta_Sans'] text-2xl sm:text-[32px] font-bold leading-tight text-[#111827]">
+            <h1 className="font-heading text-2xl sm:text-[32px] font-bold leading-tight text-[#111827]">
               Good day, {user?.displayName || "Demo Admin1"}
             </h1>
             <p className="mt-1 text-sm text-[#6b7280]">
@@ -329,7 +329,7 @@ function AdminDashboardContent() {
         {/* Page Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="font-['Plus_Jakarta_Sans'] text-2xl sm:text-[32px] font-bold leading-tight text-[#111827]">
+            <h1 className="font-heading text-2xl sm:text-[32px] font-bold leading-tight text-[#111827]">
               Demonstration accounts
             </h1>
             <p className="mt-1.5 text-sm sm:text-base text-[#4b5563]">
@@ -524,7 +524,7 @@ function AdminDashboardContent() {
     <form onSubmit={handleSaveRuntime} className="space-y-6 max-w-6xl">
       {/* Page Header */}
       <div>
-        <h1 className="font-['Plus_Jakarta_Sans'] text-2xl sm:text-[32px] font-bold leading-tight text-[#111827]">
+        <h1 className="font-heading text-2xl sm:text-[32px] font-bold leading-tight text-[#111827]">
           Runtime settings
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-[#4b5563]">
@@ -566,7 +566,7 @@ function AdminDashboardContent() {
         </div>
 
         <div className="lg:col-span-4 rounded-2xl border border-[#e4e7ef] bg-white p-6 space-y-2 shadow-2xs">
-          <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[#111827]">
+          <h2 className="font-heading text-xl font-semibold text-[#111827]">
             Current batch
           </h2>
           <p className="text-base text-[#111827]">
@@ -587,7 +587,7 @@ function AdminDashboardContent() {
       {/* Retention and Deletion Card */}
       <div className="rounded-2xl border border-[#e4e7ef] bg-white p-6 space-y-5 shadow-2xs">
         <div className="space-y-3">
-          <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[#111827]">
+          <h2 className="font-heading text-xl font-semibold text-[#111827]">
             Retention and deletion
           </h2>
           <div className="flex flex-wrap items-center gap-2 text-base text-[#4b5563]">

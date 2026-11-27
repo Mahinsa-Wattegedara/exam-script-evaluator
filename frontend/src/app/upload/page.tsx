@@ -198,7 +198,7 @@ export default function UploadPage() {
     <div className="space-y-6 pb-12">
       {/* Page Header (Figma 19:226) */}
       <div>
-        <h1 className="font-['Plus_Jakarta_Sans'] text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
+        <h1 className="font-heading text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
           Script images
         </h1>
         <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">
@@ -230,7 +230,7 @@ export default function UploadPage() {
               </svg>
             </div>
             <div>
-              <div className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
+              <div className="font-heading text-xl font-semibold text-[color:var(--x-ink,#111827)]">
                 Drop JPEG or PNG images here
               </div>
               <p className="mt-1 text-xs text-[color:var(--x-secondary,#4b5563)]">
@@ -287,7 +287,7 @@ export default function UploadPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-emerald-950">
+                <h3 className="font-heading text-base font-semibold text-emerald-950">
                   {summary.failed > 0
                     ? `Batch Upload: ${summary.ok} uploaded, ${summary.failed} failed`
                     : `Upload Complete: ${summary.ok} page image${summary.ok > 1 ? "s" : ""} saved`}
@@ -537,7 +537,7 @@ export default function UploadPage() {
       {/* Action Bar (Figma 121:3199) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
         <div>
-          <p className="font-['Inter'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
+          <p className="font-sans text-base font-semibold text-[color:var(--x-ink,#111827)]">
             {validCount} page{validCount === 1 ? "" : "s"} ready → {pendingGroups.length} script{pendingGroups.length === 1 ? "" : "s"}
             {attentionCount > 0 ? ` · ${attentionCount} file(s) need attention` : ""}
           </p>

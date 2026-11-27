@@ -335,7 +335,7 @@ export default function Overview() {
       <div className="space-y-2">
         <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
           <div className="shrink-0">
-            <h1 className="font-['Plus_Jakarta_Sans'] text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
+            <h1 className="font-heading text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
               Assessments
             </h1>
             <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">
@@ -442,7 +442,7 @@ export default function Overview() {
           className="flex w-full items-center justify-between gap-4 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--x-primary600,#4338ca)]/50 focus-visible:ring-offset-2"
         >
           <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+            <span className="font-heading text-lg font-semibold text-[color:var(--x-ink,#111827)]">
               Marking scheme
             </span>
             <span className="text-xs font-normal text-[color:var(--x-secondary,#4b5563)]">
@@ -534,7 +534,7 @@ export default function Overview() {
       </div>
 
       <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
-        <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+        <div className="font-heading text-lg font-semibold text-[color:var(--x-ink,#111827)]">
           Pending review requests
         </div>
         {pendingReviews.length === 0 ? (
@@ -555,7 +555,7 @@ export default function Overview() {
       {/* 5-Stage Pipeline Progress Card (Figma 121:2306) */}
       <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[color:var(--x-border,#e4e7ef)] pb-4">
-          <div className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+          <div className="font-heading text-lg font-semibold text-[color:var(--x-ink,#111827)]">
             Progress
           </div>
           {/* Dual Evaluator Motif */}
@@ -624,7 +624,7 @@ export default function Overview() {
               All assessments
             </span>
           </div>
-          <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+          <div className="font-heading text-4xl font-bold text-[color:var(--x-ink,#111827)]">
             {assessmentRows.length}
           </div>
         </div>
@@ -641,7 +641,7 @@ export default function Overview() {
               Active / In progress
             </span>
           </div>
-          <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+          <div className="font-heading text-4xl font-bold text-[color:var(--x-ink,#111827)]">
             {activeCount}
           </div>
         </div>
@@ -658,7 +658,7 @@ export default function Overview() {
               Released
             </span>
           </div>
-          <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+          <div className="font-heading text-4xl font-bold text-[color:var(--x-ink,#111827)]">
             {releasedCount}
           </div>
         </div>
@@ -797,7 +797,7 @@ export default function Overview() {
       <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between border-b border-[color:var(--x-border,#e4e7ef)] pb-4">
           <div>
-            <h2 className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+            <h2 className="font-heading text-lg font-semibold text-[color:var(--x-ink,#111827)]">
               Current Assessment Scripts ({scripts.length})
             </h2>
             <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">

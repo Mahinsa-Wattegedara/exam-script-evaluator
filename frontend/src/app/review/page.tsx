@@ -134,7 +134,7 @@ export function ReviewQueueInner() {
           {/* Header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="font-['Plus_Jakarta_Sans'] text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
+              <h1 className="font-heading text-3xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
                 Review queue
               </h1>
               <p className="mt-1 text-sm text-[color:var(--x-secondary,#4b5563)]">
@@ -157,7 +157,7 @@ export function ReviewQueueInner() {
                   Needs review
                 </span>
               </div>
-              <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-Teacher,#7c3aed)]">
+              <div className="font-heading text-4xl font-bold text-[color:var(--x-Teacher,#7c3aed)]">
                 {answersNeedingReview.length}
               </div>
             </div>
@@ -174,7 +174,7 @@ export function ReviewQueueInner() {
                   Extraction issues
                 </span>
               </div>
-              <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+              <div className="font-heading text-4xl font-bold text-[color:var(--x-ink,#111827)]">
                 {
                   state.answers.filter((a) => {
                     const v = activeVersion(a);
@@ -196,7 +196,7 @@ export function ReviewQueueInner() {
                   Grading disputes
                 </span>
               </div>
-              <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+              <div className="font-heading text-4xl font-bold text-[color:var(--x-ink,#111827)]">
                 {state.answers.filter((a) => a.routingStatus === "NEEDS_REVIEW").length}
               </div>
             </div>
@@ -213,7 +213,7 @@ export function ReviewQueueInner() {
                   Audit sample
                 </span>
               </div>
-              <div className="font-['Plus_Jakarta_Sans'] text-4xl font-bold text-[color:var(--x-ink,#111827)]">
+              <div className="font-heading text-4xl font-bold text-[color:var(--x-ink,#111827)]">
                 {auditSampleAnswers.length}
               </div>
             </div>
@@ -360,7 +360,7 @@ export function ReviewQueueInner() {
                 >
                   <span>←</span> Back to queue
                 </button>
-                <h1 className="font-['Plus_Jakarta_Sans'] text-2xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
+                <h1 className="font-heading text-2xl font-bold tracking-tight text-[color:var(--x-ink,#111827)]">
                   Review transcript · {currentScript?.pseudonymousCode || "Script"} / {currentQuestion?.number || "Question"}
                 </h1>
               </div>
@@ -477,7 +477,7 @@ export function ReviewQueueInner() {
             <div className="flex flex-col h-[600px] rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 shrink-0 min-h-[58px]">
                 <div>
-                  <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
+                  <h2 className="font-heading text-xl font-semibold text-[color:var(--x-ink,#111827)]">
                     Original handwritten script
                   </h2>
                   <p className="text-xs text-[color:var(--x-secondary,#4b5563)] mt-0.5">
@@ -588,7 +588,7 @@ export function ReviewQueueInner() {
             <div className="flex flex-col h-[600px] rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 shrink-0 min-h-[58px]">
                 <div>
-                  <h2 className="font-['Plus_Jakarta_Sans'] text-xl font-semibold text-[color:var(--x-ink,#111827)]">
+                  <h2 className="font-heading text-xl font-semibold text-[color:var(--x-ink,#111827)]">
                     {curVersion?.approvalStatus === "APPROVED" ? "Approved answer" : "Draft transcript (editable)"}
                   </h2>
                   <p className="text-xs text-[color:var(--x-secondary,#4b5563)] mt-0.5">
@@ -758,7 +758,7 @@ export function ReviewQueueInner() {
           <div className="rounded-2xl border border-[color:var(--x-border,#e4e7ef)] bg-white p-6 shadow-sm space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h3 className="font-['Plus_Jakarta_Sans'] text-lg font-semibold text-[color:var(--x-ink,#111827)]">
+                <h3 className="font-heading text-lg font-semibold text-[color:var(--x-ink,#111827)]">
                   Transcript verification &amp; routing
                 </h3>
                 <p className="text-xs text-[color:var(--x-secondary,#4b5563)] mt-0.5">
