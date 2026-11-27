@@ -66,7 +66,7 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
     <div className="min-h-screen bg-[#f5f6fa] flex flex-col md:flex-row items-stretch relative font-sans selection:bg-[#4338ca] selection:text-white">
       {/* 1. Left Brand Panel (Figma: Auth/Brand panel) */}
       <div className="bg-[#14123b] md:w-[480px] lg:w-[540px] shrink-0 p-8 md:p-14 flex flex-col justify-between text-white relative overflow-hidden">
-        <div>
+        <div className="flex flex-1 flex-col">
           {onBack && (
             <button
               type="button"
@@ -80,9 +80,9 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
             </button>
           )}
 
-          <div className="flex flex-col gap-5">
-            <img src="/scriptx-logo.png" alt="ScriptX" className="h-10 w-auto object-contain self-start" />
-            <p className="text-base sm:text-lg text-[rgba(255,255,255,0.85)] max-w-sm leading-relaxed">
+          <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+            <img src="/scriptx-logo.png" alt="ScriptX" className="h-16 w-auto object-contain" />
+            <p className="text-lg sm:text-xl text-[rgba(255,255,255,0.85)] max-w-sm leading-relaxed">
               Evaluate scripts from scheme to release.
             </p>
           </div>
