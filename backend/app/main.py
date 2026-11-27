@@ -24,7 +24,7 @@ from app.schemas.module1 import (
     StructuredOcrResponse,
 )
 from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
-from app.services.rubric_draft import create_rubric_draft
+from app.services.rubric_agent import create_rubric_draft
 from app.services.crypto_service import verify_session_jwt
 from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
 from app.routes.approved_rubrics import router as approved_rubrics_router

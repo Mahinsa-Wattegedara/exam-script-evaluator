@@ -5,7 +5,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.module2 import DraftQuestion
-from app.services.rubric_draft import parse_rubric_questions
+from app.services.rubric_validation import parse_rubric_questions
 
 
 class ApproveRubricRequest(BaseModel):
