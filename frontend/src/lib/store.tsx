@@ -66,6 +66,12 @@ function feedbackFromCriteria(criteria: StudentCriterionMark[]): string {
   return `${sentences.join(" ")} The released mark for this question is ${awarded} out of ${max}, which is the sum of ${breakdown}.`;
 }
 
+export function getPartialOptions(criterion: Pick<RubricCriterion, "allowedPartialCredits" | "maxMarks">): number[] {
+  return criterion.allowedPartialCredits
+    .filter((mark) => Number.isFinite(mark) && mark > 0 && mark < criterion.maxMarks)
+    .sort((a, b) => b - a);
+}
+
 function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   const answerById = (d: State, id: string) => d.answers.find((a) => a.id === id)!;
   const code = (d: State, scriptId: string) => d.scripts.find((s) => s.id === scriptId)?.pseudonymousCode ?? "?";
@@ -822,21 +828,43 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         );
       }),
 
-    reviseReleasedMark: (studentId: string, awardedMarks: number) =>
+    reviseReleasedMark: (studentId: string, awardedMarks: number) => {
+      let result: { ok: true } | { ok: false; error: string } = { ok: false, error: "" };
       mutate((d) => {
         const id = studentId.trim();
-        if (!id) return;
+        if (!id) {
+          result = { ok: false, error: "Enter a student ID before updating a released mark." };
+          return;
+        }
         const q = d.assessment.questions[0];
-        if (!q) return;
+        if (!q) {
+          result = { ok: false, error: "Q1 is not configured in this assessment." };
+          return;
+        }
         const rows = (d.studentResults?.[id] ?? []).filter((r) => r.questionId === q.id);
-        if (!rows.length) return;
+        if (!rows.length) {
+          result = { ok: false, error: `No released Q1 result was found for student ${id}.` };
+          return;
+        }
         const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
-        if (
-          !Number.isInteger(awardedMarks) ||
-          awardedMarks < 0 ||
-          awardedMarks > latest.maxMarks ||
-          awardedMarks === latest.awardedMarks
-        ) {
+        if (!Number.isFinite(awardedMarks)) {
+          result = { ok: false, error: "Enter a numeric mark to update the released result." };
+          return;
+        }
+        if (awardedMarks < 0) {
+          result = { ok: false, error: "The updated mark cannot be below 0." };
+          return;
+        }
+        if (awardedMarks > latest.maxMarks) {
+          result = { ok: false, error: `The updated mark cannot exceed ${latest.maxMarks}.` };
+          return;
+        }
+        if (!Number.isInteger(awardedMarks)) {
+          result = { ok: false, error: "Enter a whole-number mark." };
+          return;
+        }
+        if (awardedMarks === latest.awardedMarks) {
+          result = { ok: false, error: "The new mark is unchanged from the currently released mark." };
           return;
         }
         const next = structuredClone(latest);
@@ -850,28 +878,52 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           "MARK_REVISED",
           `Student ${id} ${latest.questionNumber}: mark ${latest.awardedMarks} → ${awardedMarks}, resultVersion ${next.resultVersion}`,
         );
-      }),
+        result = { ok: true };
+      });
+      return result;
+    },
 
     releaseResult: (
       studentId: string,
       statuses: Record<string, "" | "COVERED" | "PARTIAL" | "MISSING">,
-    ) =>
+      partialMarks: Record<string, number | undefined>,
+    ) => {
+      let result: { ok: true } | { ok: false; error: string } = { ok: false, error: "" };
       mutate((d) => {
         const id = studentId.trim();
-        if (!id) return;
+        if (!id) {
+          result = { ok: false, error: "Enter a student ID before releasing Q1." };
+          return;
+        }
         const q = d.assessment.questions[0];
-        if (!q) return;
-        if ((d.studentResults?.[id] ?? []).some((r) => r.questionId === q.id)) return;
+        if (!q) {
+          result = { ok: false, error: "Q1 is not configured in this assessment." };
+          return;
+        }
+        if ((d.studentResults?.[id] ?? []).some((r) => r.questionId === q.id)) {
+          result = { ok: false, error: `Q1 has already been released to ${id}. Use Update released mark to change the result.` };
+          return;
+        }
 
         const rubric = d.rubrics
           .filter((r) => r.questionId === q.id && r.approved)
           .sort((a, b) => b.version - a.version)[0];
-        if (!rubric?.criteria.length) return;
+        if (!rubric) {
+          result = { ok: false, error: "Approve a Q1 marking scheme before releasing results." };
+          return;
+        }
+        if (!rubric.criteria.length) {
+          result = { ok: false, error: "The approved Q1 marking scheme has no criteria to release." };
+          return;
+        }
 
         const criteria: StudentCriterionMark[] = [];
         for (const rc of rubric.criteria) {
-          const status = statuses[rc.id];
-          if (status !== "COVERED" && status !== "PARTIAL" && status !== "MISSING") return;
+          const status = statuses?.[rc.id];
+          if (status !== "COVERED" && status !== "PARTIAL" && status !== "MISSING") {
+            result = { ok: false, error: `Choose Covered, Partial, or Missing for criterion ${rc.id}.` };
+            return;
+          }
 
           let awarded: number;
           if (status === "COVERED") {
@@ -879,11 +931,21 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           } else if (status === "MISSING") {
             awarded = 0;
           } else {
-            const partial = rc.allowedPartialCredits
-              .filter((m) => m > 0 && m < rc.maxMarks)
-              .sort((a, b) => b - a)[0];
-            if (partial === undefined) return;
-            awarded = partial;
+            const partialOptions = getPartialOptions(rc);
+            if (!partialOptions.length) {
+              result = { ok: false, error: `Criterion ${rc.id} has no partial mark in the approved scheme. Choose Covered or Missing.` };
+              return;
+            }
+            const selectedPartialMark = partialMarks?.[rc.id];
+            if (selectedPartialMark === undefined) {
+              result = { ok: false, error: `Choose a partial mark for criterion ${rc.id}.` };
+              return;
+            }
+            if (!partialOptions.includes(selectedPartialMark)) {
+              result = { ok: false, error: `The selected partial mark for criterion ${rc.id} is not allowed by the approved scheme.` };
+              return;
+            }
+            awarded = selectedPartialMark;
           }
 
           criteria.push({
@@ -912,7 +974,10 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           criteria,
         });
         audit(d, "RELEASE", `Released Q1 to student ${id}`);
-      }),
+        result = { ok: true };
+      });
+      return result;
+    },
   };
 }
 
