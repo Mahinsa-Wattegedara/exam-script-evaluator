@@ -109,46 +109,54 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
             </p>
           </div>
 
-          {/* Quick Demo Credentials */}
-          <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Instant Demo Logins
+          {/* Quick Demo Credentials (Login only) */}
+          {mode === "signin" && (
+            <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                Instant Demo Logins
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => fillDemo("dr.silva", "Teacher@123", "TEACHER")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
+                >
+                  Teacher (Dr. Silva)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemo("245001K", "Student@123", "STUDENT")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                >
+                  Student (Kasun)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemo("admin", "Admin@123", "ADMIN")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
+                >
+                  Admin
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => fillDemo("dr.silva", "Teacher@123", "TEACHER")}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
-              >
-                Teacher (Dr. Silva)
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo("245001K", "Student@123", "STUDENT")}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
-              >
-                Student (Kasun)
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo("admin", "Admin@123", "ADMIN")}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
-              >
-                Admin
-              </button>
-            </div>
-          </div>
+          )}
 
-          {/* Role Pill Switcher */}
+          {/* Role Pill Switcher (Administrator login allowed; self-registration restricted to Teacher / Student) */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Workspace Role</label>
-            <div className="grid grid-cols-3 gap-1.5 bg-[#f5f6fa] p-1 rounded-xl border border-[#e4e7ef]">
-              {(
-                [
-                  { value: "TEACHER", label: "Teacher" },
-                  { value: "STUDENT", label: "Student" },
-                  { value: "ADMIN", label: "Administrator" },
-                ] as const
+            <div
+              className={`grid ${mode === "signin" ? "grid-cols-3" : "grid-cols-2"} gap-1.5 bg-[#f5f6fa] p-1 rounded-xl border border-[#e4e7ef]`}
+            >
+              {(mode === "signin"
+                ? ([
+                    { value: "TEACHER", label: "Teacher" },
+                    { value: "STUDENT", label: "Student" },
+                    { value: "ADMIN", label: "Administrator" },
+                  ] as const)
+                : ([
+                    { value: "TEACHER", label: "Teacher" },
+                    { value: "STUDENT", label: "Student" },
+                  ] as const)
               ).map((opt) => (
                 <button
                   key={opt.value}
@@ -260,7 +268,11 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
             <button
               type="button"
               onClick={() => {
-                setMode(mode === "signin" ? "signup" : "signin");
+                const nextMode = mode === "signin" ? "signup" : "signin";
+                setMode(nextMode);
+                if (nextMode === "signup" && role === "ADMIN") {
+                  setRole("TEACHER");
+                }
                 setError("");
               }}
               className="text-[#4338ca] font-semibold hover:underline cursor-pointer"

@@ -169,6 +169,12 @@ async def login_endpoint(payload: LoginRequestSchema) -> JSONResponse:
 
 @app.post("/api/v1/auth/register", response_model=AuthResponseSchema)
 async def register_endpoint(payload: RegisterRequestSchema) -> JSONResponse:
+    if payload.role == "ADMIN":
+        body = AuthResponseSchema(
+            ok=False,
+            error="Administrator accounts cannot be self-registered. Contact a system administrator.",
+        )
+        return JSONResponse(status_code=403, content=body.model_dump())
     ok, user, token, error = await register_user_in_supabase(payload)
     if not ok or not user or not token:
         body = AuthResponseSchema(ok=False, error=error or "Could not create user.")

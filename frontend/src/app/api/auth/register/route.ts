@@ -19,8 +19,13 @@ export async function POST(req: Request) {
 
     const username = body.username?.trim() ?? "";
     const password = body.password ?? "";
-    const role: UserRole =
-      body.role === "STUDENT" ? "STUDENT" : body.role === "ADMIN" ? "ADMIN" : "TEACHER";
+    if (body.role === "ADMIN") {
+      return NextResponse.json(
+        { ok: false, error: "Administrator accounts cannot be self-registered. Contact a system administrator." },
+        { status: 403 },
+      );
+    }
+    const role: UserRole = body.role === "STUDENT" ? "STUDENT" : "TEACHER";
     const email = body.email?.trim() || `${username.toLowerCase()}@uom.lk`;
     const displayName = body.displayName?.trim() || username;
 
