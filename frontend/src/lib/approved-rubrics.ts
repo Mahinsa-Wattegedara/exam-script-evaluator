@@ -34,6 +34,19 @@ export async function loadApprovedRubric(assessmentId: string, questionId: strin
   return readResponse(await fetch(path(assessmentId, questionId), { cache: "no-store", signal: AbortSignal.timeout(35000) }));
 }
 
+export async function archiveMarkingScheme(assessmentId: string, questionId?: string) {
+  const response = await fetch(`/api/rubric/approved/${encodeURIComponent(assessmentId)}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ questionId: questionId ?? null }),
+    signal: AbortSignal.timeout(35000),
+  });
+  const result = await response.json();
+  if (!response.ok || !Number.isInteger(result.archivedQuestions)) {
+    throw new Error(typeof result.detail === "string" ? result.detail : "The marking scheme removal could not be confirmed.");
+  }
+}
+
 export async function saveApprovedRubric(assessment: Assessment, question: Question, criteria: RubricCriterion[], modelAnswerText: string, subquestions: RubricSubquestion[], expectedVersion: number) {
   if (!subquestions.length) throw new Error("Add the original answer and mark breakdown for each subquestion before approving.");
   const url = path(assessment.id, question.id);

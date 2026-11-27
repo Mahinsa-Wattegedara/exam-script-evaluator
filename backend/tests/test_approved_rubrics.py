@@ -57,6 +57,11 @@ class ApprovedRubricApiTests(unittest.IsolatedAsyncioTestCase):
             row = {"rubric_id": "rubric-1", "version": 1, "approved_at": "2026-11-24T10:00:00Z", "approved_by_username": "teacher-one", "approved_snapshot": body["p_question"]}
             self.rows = [row]
             return httpx.Response(200, json={"rubricId": "rubric-1", "assessmentId": "asm-test", "questionId": "q1", "version": 1, "approvedAt": row["approved_at"], "approvedBy": "teacher-one", "question": body["p_question"]})
+        if request.url.path.endswith("/rpc/archive_module2_marking_scheme"):
+            body = json.loads(request.content)
+            self.assertEqual(body["p_assessment_id"], "asm-test")
+            self.assertEqual(body["p_teacher_username"], "teacher-one")
+            return httpx.Response(200, json={"archivedQuestions": 1 if body["p_question_id"] else 3})
         if request.url.path.endswith("/app_users"):
             self.assertEqual(request.url.params["username"], "eq.teacher-one")
             return httpx.Response(200, json=[{"user_id": "teacher-id"}])
@@ -122,6 +127,20 @@ class ApprovedRubricApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_update_or_delete_route_for_approved_versions(self):
         for method in ("PATCH", "DELETE"):
             self.assertEqual((await self.client.request(method, self.path + "/1", headers=self.headers)).status_code, 405)
+
+    async def test_teacher_can_archive_one_question_or_the_current_scheme(self):
+        path = "/api/v1/module2/assessments/asm-test/rubrics/archive"
+        self.assertEqual((await self.client.post(path, json={}, headers=self.token("STUDENT"))).status_code, 403)
+        self.assertEqual((await self.client.post(path, json={"questionId": "*"}, headers=self.headers)).status_code, 422)
+        self.assertEqual(self.calls, [])
+        for body, count in [({"questionId": "q1"}, 1), ({"questionId": None}, 3)]:
+            result = await self.client.post(path, json=body, headers=self.headers)
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json(), {"archivedQuestions": count})
+        self.fail = (404, "PGRST202")
+        missing_migration = await self.client.post(path, json={}, headers=self.headers)
+        self.assertEqual(missing_migration.status_code, 503)
+        self.assertIn("003_module2_demo_scheme_reset.sql", missing_migration.json()["detail"])
 
 
 if __name__ == "__main__":

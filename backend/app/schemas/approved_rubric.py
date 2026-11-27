@@ -40,3 +40,13 @@ class ApprovedRubricResponse(BaseModel):
     approvedAt: datetime
     approvedBy: str
     question: DraftQuestion
+
+
+class ArchiveMarkingSchemeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    questionId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
+
+
+class ArchiveMarkingSchemeResponse(BaseModel):
+    archivedQuestions: int = Field(ge=0)
