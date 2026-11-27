@@ -9,6 +9,7 @@ import type { ImportedQuestion } from "./marking-scheme-import";
 import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
+const PURGE_SYNC_KEY = "scriptx-last-purge-at-v1";
 const ACTOR = "Dr. S. Silva";
 
 const BOILERPLATE_CRITERION_RE =
@@ -115,6 +116,27 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       localStorage.removeItem("m1-enterprise-state-v2");
       await clearBlobs().catch(() => undefined);
       mutate((d) => Object.assign(d, buildSeed()));
+    },
+
+    clearExamScripts: async (purgedAt?: string) => {
+      await clearBlobs().catch(() => undefined);
+      const stamp = purgedAt || nowIso();
+      try {
+        localStorage.setItem(PURGE_SYNC_KEY, stamp);
+      } catch {
+        // Ignore storage errors
+      }
+      mutate((d) => {
+        d.scripts = [];
+        d.failures = [];
+        d.regions = [];
+        d.answers = [];
+        d.runs = [];
+        d.identityMap = [];
+        d.studentResults = {};
+        d.reviewRequests = [];
+        audit(d, "STORAGE_PURGE", "Cleared all exam scripts, answers, and local files after administrator purge");
+      });
     },
 
     ensureDefaultQuestions: () =>
@@ -1199,6 +1221,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } catch {
         s = buildSeed();
       }
+      // Check if an administrator purged exam storage since this browser last synced
+      try {
+        const pRes = await fetch("/api/storage/purge-status", { cache: "no-store" });
+        if (pRes.ok) {
+          const pData = (await pRes.json()) as { ok?: boolean; lastPurgeAt?: string | null };
+          const serverPurgeAt = pData.lastPurgeAt;
+          if (serverPurgeAt) {
+            const purgeMs = Date.parse(serverPurgeAt);
+            const localPurgeAt = localStorage.getItem(PURGE_SYNC_KEY);
+            const localMs = localPurgeAt ? Date.parse(localPurgeAt) : 0;
+            const hasStaleScripts =
+              Number.isFinite(purgeMs) &&
+              s.scripts.some((sc) => {
+                const upMs = Date.parse(sc.uploadedAt);
+                return !Number.isFinite(upMs) || upMs <= purgeMs;
+              });
+            if ((Number.isFinite(purgeMs) && purgeMs > localMs) || hasStaleScripts) {
+              await clearBlobs().catch(() => undefined);
+              s.scripts = [];
+              s.failures = [];
+              s.regions = [];
+              s.answers = [];
+              s.runs = [];
+              s.identityMap = [];
+              s.studentResults = {};
+              s.reviewRequests = [];
+              try {
+                localStorage.setItem(PURGE_SYNC_KEY, serverPurgeAt);
+              } catch {
+                // Ignore
+              }
+            }
+          }
+        }
+      } catch {
+        // Offline or backend unavailable
+      }
       for (const sc of s.scripts) {
         for (const im of sc.images) {
           if (im.blobKey) {
@@ -1248,6 +1307,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!ready) return;
     flushPersistence();
   }, [state, ready, flushPersistence]);
+
+  // Sync admin storage purges across tabs & when returning to an already-open tab
+  useEffect(() => {
+    if (!ready || typeof window === "undefined" || typeof document === "undefined") return;
+    async function checkRemotePurge() {
+      try {
+        const res = await fetch("/api/storage/purge-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { ok?: boolean; lastPurgeAt?: string | null };
+        const serverPurgeAt = data.lastPurgeAt;
+        if (!serverPurgeAt) return;
+        const purgeMs = Date.parse(serverPurgeAt);
+        if (!Number.isFinite(purgeMs)) return;
+        const localPurgeAt = localStorage.getItem(PURGE_SYNC_KEY);
+        const localMs = localPurgeAt ? Date.parse(localPurgeAt) : 0;
+        const hasStaleScripts = ref.current.scripts.some((sc) => {
+          const upMs = Date.parse(sc.uploadedAt);
+          return !Number.isFinite(upMs) || upMs <= purgeMs;
+        });
+        if (purgeMs > localMs || hasStaleScripts) {
+          await actionsRef.current?.clearExamScripts(serverPurgeAt);
+        }
+      } catch {
+        // Ignore offline checks
+      }
+    }
+    function onStorage(e: StorageEvent) {
+      if (e.key === PURGE_SYNC_KEY && e.newValue) {
+        actionsRef.current?.clearExamScripts(e.newValue);
+      }
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        checkRemotePurge();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ready]);
 
   const mutate = useCallback((fn: (d: State) => void) => {
     const d = structuredClone(ref.current);

@@ -195,6 +195,10 @@ class ScriptStorageApiTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(res.status_code, 200)
 
+        before_status = await self.client.get("/api/v1/module1/storage/purge-status")
+        self.assertEqual(before_status.status_code, 200)
+        self.assertIsNone(before_status.json()["lastPurgeAt"])
+
         summary = await self.client.get("/api/v1/admin/storage/summary", headers=self.token("ADMIN", "admin.01"))
         self.assertEqual(summary.status_code, 200)
         sdata = summary.json()
@@ -231,3 +235,8 @@ class ScriptStorageApiTests(unittest.IsolatedAsyncioTestCase):
         adata = after.json()
         self.assertEqual(adata["fileCount"], 0)
         self.assertEqual(adata["lastPurgeBy"], "admin.01")
+
+        # Cross-browser purge-status reflects latest purge timestamp
+        after_status = await self.client.get("/api/v1/module1/storage/purge-status")
+        self.assertEqual(after_status.status_code, 200)
+        self.assertEqual(after_status.json()["lastPurgeAt"], pdata["purgedAt"])

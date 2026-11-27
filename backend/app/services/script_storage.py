@@ -170,6 +170,13 @@ class ScriptStorageRepository:
             lastPurgeBy=purges[0]["purged_by_username"] if purges else None,
         )
 
+    async def last_purge_at(self) -> str | None:
+        purges = (await self._call(
+            "GET", self.rest + "/module1_storage_purges", what="purge status",
+            params={"select": "purged_at", "order": "purged_at.desc", "limit": "1"},
+        )).json()
+        return purges[0]["purged_at"] if purges else None
+
     async def _list_all_objects(self, prefix: str = "") -> list[str]:
         """Recursively lists every object path in the bucket (folders have id == null)."""
         paths: list[str] = []

@@ -217,14 +217,15 @@ function AdminDashboardContent() {
         ok?: boolean;
         filesDeleted?: number;
         bytesDeleted?: number;
+        purgedAt?: string;
         error?: string;
       } | null;
       if (!res.ok || !data?.ok) {
         setPurgeFeedback({ tone: "red", text: data?.error || `Storage purge failed (${res.status})` });
         return;
       }
-      // Also wipe local browser script state & IndexedDB files
-      await actions.reset();
+      // Also wipe local browser script state & IndexedDB files (preserving approved rubrics)
+      await actions.clearExamScripts(data.purgedAt);
       setPurgeOpen(false);
       setPurgeConfirmText("");
       setPurgeFeedback({

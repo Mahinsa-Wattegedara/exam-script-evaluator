@@ -72,6 +72,11 @@ async def masked_page_url(script_code: SafeId, image_id: SafeId, user: Teacher, 
     return await repo.signed_url(image_id)
 
 
+@router.get("/api/v1/module1/storage/purge-status")
+async def storage_purge_status(repo: Repo) -> dict[str, str | bool | None]:
+    return {"ok": True, "lastPurgeAt": await repo.last_purge_at()}
+
+
 @router.get("/api/v1/admin/storage/summary", response_model=StorageSummaryResponse)
 async def storage_summary(user: Admin, repo: Repo):
     return await repo.summary()
