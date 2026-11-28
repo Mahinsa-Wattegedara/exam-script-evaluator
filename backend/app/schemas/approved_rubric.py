@@ -5,7 +5,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.module2 import DraftQuestion
-from app.services.rubric_draft import parse_rubric_questions
+from app.services.rubric_validation import parse_rubric_questions
 
 
 class ApproveRubricRequest(BaseModel):
@@ -40,3 +40,13 @@ class ApprovedRubricResponse(BaseModel):
     approvedAt: datetime
     approvedBy: str
     question: DraftQuestion
+
+
+class ArchiveMarkingSchemeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    questionId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
+
+
+class ArchiveMarkingSchemeResponse(BaseModel):
+    archivedQuestions: int = Field(ge=0)

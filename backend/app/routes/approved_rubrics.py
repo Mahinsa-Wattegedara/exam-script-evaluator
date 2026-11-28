@@ -5,7 +5,9 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.schemas.approved_rubric import ApprovedRubricResponse, ApproveRubricRequest
+from app.schemas.approved_rubric import (
+    ApprovedRubricResponse, ApproveRubricRequest, ArchiveMarkingSchemeRequest, ArchiveMarkingSchemeResponse,
+)
 from app.schemas.auth import SessionUserSchema
 from app.services.approved_rubrics import ApprovedRubricRepository
 from app.services.crypto_service import verify_session_jwt
@@ -33,6 +35,11 @@ async def repository():
 
 Teacher = Annotated[SessionUserSchema, Depends(require_teacher)]
 Repository = Annotated[ApprovedRubricRepository, Depends(repository)]
+
+
+@router.post("/{assessment_id}/rubrics/archive", response_model=ArchiveMarkingSchemeResponse)
+async def archive_marking_scheme(assessment_id: ResourceId, payload: ArchiveMarkingSchemeRequest, user: Teacher, repo: Repository):
+    return await repo.archive_marking_scheme(assessment_id, user.username, payload.questionId)
 
 
 @router.post("/{assessment_id}/questions/{question_id}/rubrics/approve", response_model=ApprovedRubricResponse, status_code=201)

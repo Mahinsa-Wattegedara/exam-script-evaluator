@@ -8,6 +8,7 @@ class RubricDraftRequest(BaseModel):
 
     pages: list[ScriptPageImagePayload] = Field(default_factory=list, max_length=10)
     text: str = Field(default="", max_length=100_000)
+    assessmentId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
 
 
 class ScoreGuide(BaseModel):
@@ -51,6 +52,11 @@ class DraftQuestion(BaseModel):
     criteria: list[DraftCriterion] = Field(min_length=1)
 
 
+class RubricQualityWarning(BaseModel):
+    questionNumber: str
+    message: str
+
+
 class RubricDraftResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -58,3 +64,5 @@ class RubricDraftResponse(BaseModel):
     transcript: str
     ocrModel: str | None = None
     rubricModel: str
+    warnings: list[RubricQualityWarning] = Field(default_factory=list)
+    reviewId: str | None = None

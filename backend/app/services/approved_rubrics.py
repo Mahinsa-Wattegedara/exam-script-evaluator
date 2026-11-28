@@ -2,7 +2,7 @@
 import httpx
 from fastapi import HTTPException
 
-from app.schemas.approved_rubric import ApprovedRubricResponse, ApproveRubricRequest
+from app.schemas.approved_rubric import ApprovedRubricResponse, ApproveRubricRequest, ArchiveMarkingSchemeResponse
 from app.services.structured_extractor import _resolve_env_var
 
 
@@ -23,12 +23,17 @@ class ApprovedRubricRepository:
             raise HTTPException(503, "Rubric database is unavailable. Retry without changing expectedVersion.") from exc
         if response.status_code >= 400:
             try:
-                code = response.json().get("code")
+                error = response.json()
             except ValueError:
-                code = None
+                error = {}
+            code = error.get("code")
+            archiving = path == "/rpc/archive_module2_marking_scheme"
             if code in ("PGRST202", "PGRST204", "42703", "42P01"):
-                raise HTTPException(503, "Apply migration 002_module2_approved_rubrics.sql to Supabase first.")
+                migration = "003_module2_demo_scheme_reset.sql" if archiving else "002_module2_approved_rubrics.sql"
+                raise HTTPException(503, f"Apply migration {migration} to Supabase first.")
             if response.status_code == 409 or code == "23505":
+                if archiving and error.get("message") == "This marking scheme is linked to student work.":
+                    raise HTTPException(409, error["message"])
                 raise HTTPException(409, "The approved version changed. Fetch the latest version and review before retrying.")
             if response.status_code == 404:
                 raise HTTPException(404, "Assessment or approved rubric not found.")
@@ -45,6 +50,12 @@ class ApprovedRubricRepository:
             "p_question": payload.question.model_dump(mode="json"),
         })
         return ApprovedRubricResponse.model_validate(data)
+
+    async def archive_marking_scheme(self, assessment_id: str, username: str, question_id: str | None):
+        data = await self._request("POST", "/rpc/archive_module2_marking_scheme", json={
+            "p_assessment_id": assessment_id, "p_teacher_username": username, "p_question_id": question_id,
+        })
+        return ArchiveMarkingSchemeResponse.model_validate(data)
 
     async def _question(self, assessment_id: str, question_id: str, username: str) -> str:
         users = await self._request("GET", "/app_users", params={

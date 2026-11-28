@@ -7,6 +7,7 @@ export type Question = {
   number: string; // "Q1"
   prompt: string;
   maxMarks: number;
+  rubricWarnings?: string[];
 };
 
 export type RubricCriterion = {
@@ -41,6 +42,7 @@ export type RubricSubquestion = {
 };
 
 export type RubricVersion = {
+  rubricId?: string; // Present only after a confirmed database save/read.
   subquestions?: RubricSubquestion[];
   version: number; // immutable v1, v2... (REQ-13)
   questionId: string;
@@ -57,6 +59,7 @@ export type Assessment = {
   title: string;
   course: string;
   retentionDays: number;
+  rubricReviewId?: string;
   questions: Question[]; // input from assessment setup (owned by Module 2) - read-only here
 };
 

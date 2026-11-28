@@ -11,20 +11,24 @@ type Props = {
   onPointChange: (id: string, changes: Partial<RubricCriterion>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  onRemoveSubtopic?: () => void;
 };
 
 const input = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-100";
 
-export function RubricSubquestionEditor({ part, points, structured, onPartChange, onPointChange, onAdd, onRemove }: Props) {
+export function RubricSubquestionEditor({ part, points, structured, onPartChange, onPointChange, onAdd, onRemove, onRemoveSubtopic }: Props) {
   const allocated = Number(points.reduce((sum, point) => sum + point.maxMarks, 0).toFixed(2));
   const balanced = Math.abs(allocated - part.maxMarks) < 0.001;
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50/60 px-5 py-4">
         <h3 className="text-lg font-semibold text-indigo-950">{part.label}</h3>
-        <label className="flex items-center gap-2 text-xs font-medium text-slate-600">Full marks
-          <input aria-label={`${part.label} full marks`} type="number" step="0.5" min="0.5" value={part.maxMarks} onChange={e => onPartChange({maxMarks: Number(e.target.value)})} className={`${input} !w-20 text-center font-semibold`} />
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600">Full marks
+            <input aria-label={`${part.label} full marks`} type="number" step="0.5" min="0.5" value={part.maxMarks} onChange={e => onPartChange({maxMarks: Number(e.target.value)})} className={`${input} !w-20 text-center font-semibold`} />
+          </label>
+          {onRemoveSubtopic && <Button type="button" variant="danger" size="sm" aria-label={`Remove subtopic ${part.label}`} onClick={onRemoveSubtopic}>Remove subtopic</Button>}
+        </div>
       </div>
       <div className="space-y-4 p-5">
         <label className="block text-xs font-semibold text-slate-600">Question

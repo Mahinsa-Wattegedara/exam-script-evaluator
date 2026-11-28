@@ -1,10 +1,11 @@
 "use client";
 // Client-side store for the frontend demo. All data is mock data held in the browser
-// (localStorage + IndexedDB for uploaded files). No backend calls are made.
+// (localStorage + IndexedDB for uploaded files). Approved rubrics use the backend.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { clearBlobs, createMaskedCopy, getBlob, imageToMaskedBase64 } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
+import { loadApprovedRubric, saveApprovedRubric, type ApprovedRubric } from "./approved-rubrics";
 import type { ImportedQuestion } from "./marking-scheme-import";
 import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
@@ -25,6 +26,16 @@ export function isPlaceholderPrompt(prompt?: string | null): boolean {
 export function sanitizeCriterionDescription(description?: string | null): string {
   const raw = description || "";
   return BOILERPLATE_CRITERION_RE.test(raw.trim()) ? "" : raw;
+}
+
+export function hasMarkingScheme(state: State): boolean {
+  return state.rubrics.length > 0 || state.assessment.questions.some(question => !isPlaceholderPrompt(question.prompt));
+}
+
+export function questionRemovalBlock(state: State, questionId: string): string | undefined {
+  if (state.regions.some(region => region.questionId === questionId) || state.answers.some(answer => answer.questionId === questionId)) {
+    return "This question is linked to a student script.";
+  }
 }
 
 type Ctx = {
@@ -79,14 +90,36 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   const code = (d: State, scriptId: string) => d.scripts.find((s) => s.id === scriptId)?.pseudonymousCode ?? "?";
   const qnum = (d: State, qid: string) => d.assessment.questions.find((q) => q.id === qid)?.number ?? qid;
 
+  function receiveApproval(saved: ApprovedRubric, replaceDraft: boolean, images?: ModelAnswerImage[]) {
+    mutate(d => {
+      if (d.assessment.id !== saved.assessmentId) return;
+      const q = d.assessment.questions.find(q => q.id === saved.questionId);
+      if (!q) return;
+      Object.assign(q, { number: saved.question.number, prompt: saved.question.prompt, maxMarks: saved.question.maxMarks });
+      d.rubrics = d.rubrics.filter(r => r.questionId !== saved.questionId || (!r.approved && !replaceDraft) || (r.approved && r.rubricId && r.version !== saved.version));
+      d.rubrics.push({
+        questionId: saved.questionId, rubricId: saved.rubricId, version: saved.version,
+        criteria: saved.question.criteria, subquestions: saved.question.subquestions,
+        modelAnswerText: saved.question.modelAnswerText, modelAnswerImages: images,
+        approved: true, approvedAt: saved.approvedAt, approvedBy: saved.approvedBy,
+      });
+      audit(d, "APPROVE_RUBRIC", `Loaded database-approved rubric v${saved.version} for ${q.number}`);
+    });
+  }
+
   return {
+    loadApprovedRubric: async (questionId: string) => {
+      const saved = await loadApprovedRubric(getState().assessment.id, questionId);
+      receiveApproval(saved, true);
+      return saved;
+    },
     updateAssessment: (title: string, course: string) =>
       mutate((d) => {
         d.assessment.title = title;
         d.assessment.course = course;
       }),
 
-    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean }) => {
+    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean; reviewId?: string }) => {
       const state = getState();
       if (state.scripts.length || state.answers.length || state.rubrics.some((r) => r.approved)) {
         return { ok: false, error: "This assessment has uploaded student scripts or approved rubrics. Its questions cannot be replaced by an import." };
@@ -97,6 +130,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       if (!items.length) return { ok: false, error: "No questions were found to import." };
       mutate((d) => {
         d.assessment.questions = items.map((item) => item.question);
+        d.assessment.rubricReviewId = options?.reviewId;
         d.rubrics = items.map((item) => ({
           version: 1,
           questionId: item.question.id,
@@ -106,6 +140,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           approved: false,
         }));
         audit(d, "IMPORT_MARKING_SCHEME", `Imported ${items.length} question drafts${options?.replaceDrafts ? "; replaced previous drafts after confirmation" : ""}`);
+      });
+      return { ok: true };
+    },
+
+    resetMarkingScheme: (databaseArchived: boolean) => {
+      const state = getState();
+      if (state.scripts.length || state.answers.length) {
+        return { ok: false, error: "This assessment has uploaded student work." };
+      }
+      if (state.rubrics.some(rubric => rubric.approved && rubric.rubricId) && !databaseArchived) {
+        return { ok: false, error: "Archive the saved rubric versions before resetting the marking scheme." };
+      }
+      mutate(d => {
+        d.assessment.questions = DEFAULT_QUESTIONS.map(question => ({ ...question }));
+        delete d.assessment.rubricReviewId;
+        d.rubrics = [];
+        audit(d, "RESET_MARKING_SCHEME", "Reset the marking scheme for this assessment");
       });
       return { ok: true };
     },
@@ -167,11 +218,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         }
       }),
 
-    deleteQuestion: (questionId: string) =>
+    deleteQuestion: (questionId: string, databaseArchived = false) => {
+      const state = getState();
+      const question = state.assessment.questions.find(item => item.id === questionId);
+      if (!question) return { ok: false, error: "This question has already been removed." };
+      const error = questionRemovalBlock(state, questionId);
+      if (error) return { ok: false, error };
+      if (state.rubrics.some(rubric => rubric.questionId === questionId && rubric.approved && rubric.rubricId) && !databaseArchived) {
+        return { ok: false, error: "Archive the saved rubric versions before removing this question." };
+      }
       mutate((d) => {
         d.assessment.questions = d.assessment.questions.filter((x) => x.id !== questionId);
         d.rubrics = d.rubrics.filter((r) => r.questionId !== questionId);
-      }),
+        if (!d.assessment.questions.length) delete d.assessment.rubricReviewId;
+        audit(d, "DELETE_QUESTION", `Removed ${question.number} from the marking scheme`);
+      });
+      return { ok: true };
+    },
 
     addModelAnswerImage: (questionId: string, image: ModelAnswerImage) =>
       mutate((d) => {
@@ -226,7 +289,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         if (subquestions !== undefined) r.subquestions = subquestions;
       }),
 
-    approveRubric: (
+    approveRubric: async (
       questionId: string,
       criteria: RubricCriterion[],
       modelAnswerText?: string,
@@ -234,7 +297,8 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       subquestions?: RubricSubquestion[],
     ) => {
       let result: { ok: boolean; error?: string } = { ok: false, error: "" };
-      mutate((d) => {
+      const snapshot = structuredClone(getState());
+      ((d: State) => {
         if (!d.rubrics) d.rubrics = [];
         const q = d.assessment.questions.find((x) => x.id === questionId);
         if (!q) {
@@ -287,33 +351,18 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           subquestions.some(part => !part.originalAnswer.trim() || !part.prompt.trim() || !Number.isFinite(part.maxMarks) || part.maxMarks <= 0 || Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks, 0) - part.maxMarks) > 0.001) ||
           criteria.some(c => !subquestions.some(part => part.id === c.subquestionId) || !c.sourceExcerpt?.trim())
         )) { result = {ok:false, error:"Each subquestion needs its original answer and a mark breakdown matching its full marks."}; return; }
-        const approvedVersions = d.rubrics.filter((x) => x.questionId === questionId && x.approved);
-        const nextVer = approvedVersions.length + 1;
-
-        const approvedRubric: RubricVersion = {
-          version: nextVer,
-          questionId,
-          criteria,
-          modelAnswerText,
-          modelAnswerImages,
-          subquestions,
-          approved: true,
-          approvedAt: nowIso(),
-          approvedBy: ACTOR,
-        };
-
-        // Remove unapproved draft if any
-        d.rubrics = d.rubrics.filter((x) => !(x.questionId === questionId && !x.approved));
-        d.rubrics.push(approvedRubric);
-
-        audit(
-          d,
-          "APPROVE_RUBRIC",
-          `Approved Rubric v${nextVer} for ${q.number} (${criteria.length} criteria, ${q.maxMarks} marks total)`,
-        );
         result = { ok: true };
-      });
-      return result;
+      })(snapshot);
+      if (!result.ok) return result;
+      try {
+        const question = snapshot.assessment.questions.find(q => q.id === questionId)!;
+        const expectedVersion = Math.max(0, ...snapshot.rubrics.filter(r => r.questionId === questionId && r.approved && r.rubricId).map(r => r.version));
+        const saved = await saveApprovedRubric(snapshot.assessment, question, criteria, modelAnswerText || "", subquestions || [], expectedVersion);
+        receiveApproval(saved, true, modelAnswerImages);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Approval failed. Load the saved approval before retrying." };
+      }
     },
 
     addUploads: (
@@ -1207,7 +1256,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 },
           );
         }
-        if (!s.assessment.questions || s.assessment.questions.length === 0) {
+        if (!s.assessment.questions) {
           s.assessment.questions = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
         } else {
           s.assessment.questions = s.assessment.questions.map((q) => ({

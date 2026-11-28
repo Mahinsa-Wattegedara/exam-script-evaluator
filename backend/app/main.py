@@ -4,12 +4,13 @@ Aligned with SRS Section 4.3 & 4.4 (ExternalInterfaces.docx):
 - Python 3.12+
 - FastAPI 0.162.0
 - Pydantic v2 (extra="forbid")
-- LangGraph 1.2.0
+- LangGraph 1.2.24 / SDK 0.4.14
 """
 import os
 from pathlib import Path
+from uuid import UUID
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.schemas.auth import (
@@ -29,7 +30,8 @@ from app.schemas.module1 import (
     StructuredOcrResponse,
 )
 from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
-from app.services.rubric_draft import create_rubric_draft
+from app.services.rubric_agent import create_rubric_draft
+from app.services.rubric_review import RubricReviewCheck, RubricReviewStatus, review_configured, review_progress, start_review
 from app.services.crypto_service import verify_session_jwt
 from app.services.supabase_auth import (
     authenticate_with_supabase,
@@ -37,7 +39,7 @@ from app.services.supabase_auth import (
     register_user_in_supabase,
     request_password_reset,
 )
-from app.routes.approved_rubrics import router as approved_rubrics_router
+from app.routes.approved_rubrics import Repository, Teacher, bearer, require_teacher, router as approved_rubrics_router
 from app.routes.script_storage import router as script_storage_router
 
 # Load environment variables from backend/.env or frontend/.env
@@ -66,17 +68,30 @@ app.include_router(script_storage_router)
 
 
 @app.post("/api/v1/module2/rubric/draft-from-script", response_model=RubricDraftResponse)
-async def draft_rubric_from_script(payload: RubricDraftRequest) -> RubricDraftResponse:
-    from fastapi import HTTPException
-
+async def draft_rubric_from_script(payload: RubricDraftRequest, request: Request) -> RubricDraftResponse:
     if not payload.pages and not payload.text.strip():
         raise HTTPException(status_code=422, detail="Upload PDF pages or provide document text.")
+    owner = require_teacher(await bearer(request)) if review_configured() else None
+    if owner and not payload.assessmentId:
+        raise HTTPException(422, "An assessment ID is required for rubric review.")
     try:
-        return await create_rubric_draft(payload)
+        draft = await create_rubric_draft(payload)
+        if owner and payload.assessmentId:
+            draft.reviewId = await start_review(owner.username, payload.assessmentId, [q.number.lower() for q in draft.questions])
+        return draft
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Rubric draft generation failed: {type(exc).__name__}") from exc
+
+
+@app.post("/api/v1/module2/rubric/reviews/{review_id}/check", response_model=RubricReviewStatus)
+async def check_rubric_review(
+    review_id: UUID, teacher: Teacher, repo: Repository, payload: RubricReviewCheck | None = None
+) -> RubricReviewStatus:
+    return await review_progress(str(review_id), teacher.username, repo, payload.removeQuestionId if payload else None)
 
 
 @app.get("/health")
