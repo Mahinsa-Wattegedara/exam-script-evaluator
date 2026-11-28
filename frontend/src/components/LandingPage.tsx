@@ -40,7 +40,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
               onClick={() => scrollTo("pipeline")}
               className="hover:text-white transition-colors cursor-pointer"
             >
-              Pipeline
+              Flow
             </button>
             <button
               type="button"
@@ -105,7 +105,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 onClick={() => scrollTo("pipeline")}
                 className="px-6 py-3.5 rounded-xl font-semibold text-base bg-white/10 hover:bg-white/15 text-[#e0e3ff] border border-white/20 transition-all cursor-pointer"
               >
-                See the pipeline
+                See the flow
               </button>
             </div>
 
@@ -114,13 +114,13 @@ export function LandingPage({ onLogin }: LandingPageProps) {
             </p>
           </div>
 
-          {/* Right Column: Hero Visual (Pipeline Stepper Preview) */}
+          {/* Right Column: Hero Visual (Flow Stepper Preview) */}
           <div className="lg:col-span-5 flex justify-center">
             <div className="w-full max-w-[500px] bg-white rounded-2xl p-6 shadow-2xl border border-slate-200 text-slate-900 relative">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Progress</h3>
-                  <p className="text-xs text-slate-500">Live dual-evaluation pipeline</p>
+                  <p className="text-xs text-slate-500">Live dual-evaluation flow</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#dbeafe] text-blue-900">
@@ -152,7 +152,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
               </div>
 
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs text-slate-600">
-                <span className="font-medium">Assessments pipeline · dual evaluators</span>
+                <span className="font-medium">Assessments flow · dual evaluators</span>
                 <span className="font-bold text-indigo-700">6 Stages Active</span>
               </div>
             </div>
@@ -160,11 +160,11 @@ export function LandingPage({ onLogin }: LandingPageProps) {
         </div>
       </section>
 
-      {/* 3. Pipeline Section */}
+      {/* 3. Flow Section */}
       <section id="pipeline" className="bg-[#eef2ff] py-20 px-6 lg:px-16 scroll-mt-12">
         <div className="max-w-7xl mx-auto flex flex-col gap-12">
           <div>
-            <span className="text-xs font-bold tracking-wider uppercase text-[#4338ca]">Pipeline</span>
+            <span className="text-xs font-bold tracking-wider uppercase text-[#4338ca]">Flow</span>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2">
               From scheme to release in six stages
             </h2>
@@ -254,7 +254,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 <h3 className="text-xl font-bold text-slate-900">Teacher</h3>
                 <ul className="space-y-2 text-sm text-slate-600">
                   <li className="flex items-start gap-2">
-                    <span className="text-indigo-600 font-bold">•</span> Run assessments through the pipeline
+                    <span className="text-indigo-600 font-bold">•</span> Run assessments through the flow
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-indigo-600 font-bold">•</span> Approve transcripts before marking
@@ -404,25 +404,6 @@ export function LandingPage({ onLogin }: LandingPageProps) {
         </div>
       </section>
 
-      {/* 7. Final CTA Section */}
-      <section className="bg-[#14123b] text-white py-16 px-6 lg:px-16 border-t border-indigo-950">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <h3 className="text-2xl font-bold text-white">Continue in your workspace</h3>
-            <p className="text-sm text-[rgba(224,227,255,0.9)] mt-1">
-              Log in with your work account. Role is set on your profile.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onLogin}
-            className="px-8 py-3.5 rounded-xl font-semibold text-base bg-[#4338ca] text-white hover:bg-indigo-700 transition-all shadow-md shrink-0 cursor-pointer"
-          >
-            Log in
-          </button>
-        </div>
-      </section>
-
       {/* 8. Public / Marketing Footer */}
       <footer className="bg-[#14123b] text-slate-400 py-12 px-6 lg:px-16 border-t border-indigo-950/80 text-xs">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start justify-between gap-8">
@@ -440,7 +421,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 How it works
               </button>
               <button type="button" onClick={() => scrollTo("pipeline")} className="hover:text-white text-left cursor-pointer">
-                Pipeline
+                Flow
               </button>
               <button type="button" onClick={() => scrollTo("roles")} className="hover:text-white text-left cursor-pointer">
                 Roles

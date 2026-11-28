@@ -12,13 +12,15 @@ interface LoginViewProps {
 export function LoginView({ onBack, onSuccess }: LoginViewProps) {
   const router = useRouter();
   const { login, register } = useStore();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [role, setRole] = useState<UserRole>("TEACHER");
   const [username, setUsername] = useState<string>("");
+  const [email, setEmail] = useState<string>("");
   const [displayName, setDisplayName] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [rememberMe, setRememberMe] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
+  const [forgotMessage, setForgotMessage] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
   function fillDemo(user: string, pass: string, r: UserRole) {
@@ -30,6 +32,42 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (mode === "forgot") {
+      const cleanId = (email || username).trim();
+      if (!cleanId) {
+        setError("Please enter your registered email address or username.");
+        return;
+      }
+      setLoading(true);
+      setError("");
+      setForgotMessage("");
+      try {
+        const res = await fetch("/api/auth/forgot-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: cleanId }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          message?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) {
+          setError(data.error || "Could not send password recovery email.");
+        } else {
+          setForgotMessage(
+            data.message ||
+              "If an active account matches that email or username, a 15-minute password reset link has been sent.",
+          );
+        }
+      } catch {
+        setError("Could not reach authentication service. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!username.trim() || !password.trim()) {
       setError("Please enter your username/email and password.");
       return;
@@ -42,6 +80,7 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
           ? await login(username, password, role)
           : await register({
               username,
+              email: email.trim() || undefined,
               password,
               role,
               displayName: displayName.trim() || username.trim(),
@@ -66,7 +105,7 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
     <div className="min-h-screen bg-[#f5f6fa] flex flex-col md:flex-row items-stretch relative font-sans selection:bg-[#4338ca] selection:text-white">
       {/* 1. Left Brand Panel (Figma: Auth/Brand panel) */}
       <div className="bg-[#14123b] md:w-[480px] lg:w-[540px] shrink-0 p-8 md:p-14 flex flex-col justify-between text-white relative overflow-hidden">
-        <div>
+        <div className="flex flex-1 flex-col">
           {onBack && (
             <button
               type="button"
@@ -80,9 +119,9 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
             </button>
           )}
 
-          <div className="flex flex-col gap-5">
-            <img src="/scriptx-logo.png" alt="ScriptX" className="h-10 w-auto object-contain self-start" />
-            <p className="text-base sm:text-lg text-[rgba(255,255,255,0.85)] max-w-sm leading-relaxed">
+          <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+            <img src="/scriptx-logo.png" alt="ScriptX" className="h-16 w-auto object-contain" />
+            <p className="text-lg sm:text-xl text-[rgba(255,255,255,0.85)] max-w-sm leading-relaxed">
               Evaluate scripts from scheme to release.
             </p>
           </div>
@@ -102,69 +141,95 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
         <div className="w-full max-w-[480px] bg-white rounded-2xl p-8 shadow-[0px_1px_3px_0px_rgba(17,24,39,0.03),0px_4px_16px_0px_rgba(17,24,39,0.06)] border border-[#e4e7ef] flex flex-col gap-5">
           <div>
             <h2 className="text-[28px] font-bold text-[#111827] leading-tight">
-              {mode === "signin" ? "Log in" : "Create account"}
+              {mode === "signin"
+                ? "Log in"
+                : mode === "signup"
+                  ? "Create account"
+                  : "Reset your password"}
             </h2>
             <p className="text-sm text-[#4b5563] mt-1">
-              Use your work account. Role is set on your profile.
+              {mode === "forgot"
+                ? "Enter your registered work email or username. We will send you a 15-minute recovery link."
+                : "Use your work account. Role is set on your profile."}
             </p>
           </div>
 
-          {/* Quick Demo Credentials */}
-          <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Instant Demo Logins
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => fillDemo("dr.silva", "Teacher@123", "TEACHER")}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
-              >
-                Teacher (Dr. Silva)
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo("245001K", "Student@123", "STUDENT")}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
-              >
-                Student (Kasun)
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo("admin", "Admin@123", "ADMIN")}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
-              >
-                Admin
-              </button>
-            </div>
-          </div>
-
-          {/* Role Pill Switcher */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Workspace Role</label>
-            <div className="grid grid-cols-3 gap-1.5 bg-[#f5f6fa] p-1 rounded-xl border border-[#e4e7ef]">
-              {(
-                [
-                  { value: "TEACHER", label: "Teacher" },
-                  { value: "STUDENT", label: "Student" },
-                  { value: "ADMIN", label: "Administrator" },
-                ] as const
-              ).map((opt) => (
+          {/* Quick Demo Credentials (Login only) */}
+          {mode === "signin" && (
+            <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                Instant Demo Logins
+              </div>
+              <div className="flex flex-wrap gap-2">
                 <button
-                  key={opt.value}
                   type="button"
-                  onClick={() => setRole(opt.value)}
-                  className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    role === opt.value
-                      ? "bg-white text-[#4338ca] shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
+                  onClick={() => fillDemo("dr.silva", "Teacher@123", "TEACHER")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
                 >
-                  {opt.label}
+                  Teacher (Dr. Silva)
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => fillDemo("245001K", "Student@123", "STUDENT")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                >
+                  Student (Kasun)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemo("admin", "Admin@123", "ADMIN")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
+                >
+                  Admin
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Role Pill Switcher (Administrator login allowed; self-registration restricted to Teacher / Student) */}
+          {mode !== "forgot" && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Workspace Role</label>
+              <div
+                className={`grid ${mode === "signin" ? "grid-cols-3" : "grid-cols-2"} gap-1.5 bg-[#f5f6fa] p-1 rounded-xl border border-[#e4e7ef]`}
+              >
+                {(mode === "signin"
+                  ? ([
+                      { value: "TEACHER", label: "Teacher" },
+                      { value: "STUDENT", label: "Student" },
+                      { value: "ADMIN", label: "Administrator" },
+                    ] as const)
+                  : ([
+                      { value: "TEACHER", label: "Teacher" },
+                      { value: "STUDENT", label: "Student" },
+                    ] as const)
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setRole(opt.value)}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      role === opt.value
+                        ? "bg-white text-[#4338ca] shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Success Banner (Password reset link sent) */}
+          {forgotMessage && (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-3.5 flex items-start gap-3 text-xs text-emerald-900">
+              <span className="size-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
+                ✓
+              </span>
+              <p className="leading-relaxed pt-0.5">{forgotMessage}</p>
+            </div>
+          )}
 
           {/* Error Banner (Figma: Alert / Danger) */}
           {error && (
@@ -177,66 +242,109 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
           )}
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {mode === "signup" && (
+            {mode === "forgot" ? (
               <div>
-                <label className="block text-sm font-semibold text-[#111827] mb-1">Full Name</label>
+                <label className="block text-sm font-semibold text-[#111827] mb-1">
+                  Registered email or username
+                </label>
                 <input
                   type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder={role === "TEACHER" ? "Dr. S. Silva" : role === "ADMIN" ? "Demo Admin1" : "Kasun Jayawardena"}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
                   className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
                 />
               </div>
+            ) : (
+              <>
+                {mode === "signup" && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#111827] mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder={role === "TEACHER" ? "Dr. S. Silva" : "Kasun Jayawardena"}
+                        className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#111827] mb-1">
+                        Email address <span className="font-normal text-xs text-[#6b7280]">(for password recovery)</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        required
+                        className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-sm font-semibold text-[#111827] mb-1">
+                    {role === "STUDENT" ? "Student ID / Username" : "Work email / Username"}
+                  </label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={role === "STUDENT" ? "245001K" : role === "ADMIN" ? "admin" : "dr.silva"}
+                    required
+                    className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-semibold text-[#111827]">Password</label>
+                    {mode === "signin" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!email && username.includes("@")) {
+                            setEmail(username);
+                          }
+                          setMode("forgot");
+                          setError("");
+                          setForgotMessage("");
+                        }}
+                        className="text-xs font-medium text-[#4338ca] hover:underline cursor-pointer"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    required
+                    minLength={mode === "signup" ? 8 : undefined}
+                    className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    id="rememberMe"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="size-4 rounded border-slate-300 text-[#4338ca] focus:ring-[#4338ca]"
+                  />
+                  <label htmlFor="rememberMe" className="text-xs text-[#4b5563] cursor-pointer">
+                    Remember me
+                  </label>
+                </div>
+              </>
             )}
-
-            <div>
-              <label className="block text-sm font-semibold text-[#111827] mb-1">
-                {role === "STUDENT" ? "Student ID / Username" : "Work email / Username"}
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder={role === "STUDENT" ? "245001K" : role === "ADMIN" ? "admin" : "dr.silva"}
-                required
-                className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-semibold text-[#111827]">Password</label>
-                <button
-                  type="button"
-                  onClick={() => alert("Password reset instructions: Please contact your institutional administrator or verify with the provided demo credentials.")}
-                  className="text-xs font-medium text-[#4338ca] hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                required
-                className="w-full h-12 px-3.5 rounded-xl border border-[#e4e7ef] bg-white text-sm text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#4338ca]"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                id="rememberMe"
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="size-4 rounded border-slate-300 text-[#4338ca] focus:ring-[#4338ca]"
-              />
-              <label htmlFor="rememberMe" className="text-xs text-[#4b5563] cursor-pointer">
-                Remember me
-              </label>
-            </div>
 
             <button
               type="submit"
@@ -246,12 +354,14 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
               {loading ? (
                 <>
                   <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Signing in...
+                  {mode === "forgot" ? "Sending link..." : mode === "signup" ? "Creating account..." : "Signing in..."}
                 </>
               ) : mode === "signin" ? (
                 "Log in"
-              ) : (
+              ) : mode === "signup" ? (
                 "Create Account"
+              ) : (
+                "Send recovery link"
               )}
             </button>
           </form>
@@ -260,12 +370,25 @@ export function LoginView({ onBack, onSuccess }: LoginViewProps) {
             <button
               type="button"
               onClick={() => {
-                setMode(mode === "signin" ? "signup" : "signin");
+                if (mode === "forgot") {
+                  setMode("signin");
+                } else {
+                  const nextMode = mode === "signin" ? "signup" : "signin";
+                  setMode(nextMode);
+                  if (nextMode === "signup" && role === "ADMIN") {
+                    setRole("TEACHER");
+                  }
+                }
                 setError("");
+                setForgotMessage("");
               }}
               className="text-[#4338ca] font-semibold hover:underline cursor-pointer"
             >
-              {mode === "signin" ? "New here? Register account" : "Already registered? Log in"}
+              {mode === "forgot"
+                ? "← Back to log in"
+                : mode === "signin"
+                  ? "New here? Register account"
+                  : "Already registered? Log in"}
             </button>
             <span>Help · Terms · Privacy</span>
           </div>

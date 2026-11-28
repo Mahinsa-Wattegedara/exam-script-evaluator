@@ -7,14 +7,18 @@ export type Question = {
   number: string; // "Q1"
   prompt: string;
   maxMarks: number;
+  rubricWarnings?: string[];
 };
 
 export type RubricCriterion = {
   id: string; // e.g. "C1", "C2" (REQ-11)
+  subquestionId?: string;
+  sourceExcerpt?: string;
   description: string;
   maxMarks: number;
   allowedPartialCredits: number[]; // e.g. [0, 0.5, 1.0] (REQ-11)
   acceptedAlternatives: string[]; // e.g. accepted paraphrases (REQ-11)
+  scoringGuide?: { marks: number; description: string }[];
 };
 
 export type ModelAnswerImage = {
@@ -29,7 +33,17 @@ export type ModelAnswerImage = {
   blobKey?: string;
 };
 
+export type RubricSubquestion = {
+  id: string;
+  label: string;
+  prompt: string;
+  originalAnswer: string;
+  maxMarks: number;
+};
+
 export type RubricVersion = {
+  rubricId?: string; // Present only after a confirmed database save/read.
+  subquestions?: RubricSubquestion[];
   version: number; // immutable v1, v2... (REQ-13)
   questionId: string;
   criteria: RubricCriterion[];
@@ -45,6 +59,7 @@ export type Assessment = {
   title: string;
   course: string;
   retentionDays: number;
+  rubricReviewId?: string;
   questions: Question[]; // input from assessment setup (owned by Module 2) - read-only here
 };
 
@@ -67,6 +82,9 @@ export type ScriptImage = {
   height: number;
   sampleKey?: string; // used by the mock OCR to return realistic text
   blobKey?: string; // uploaded files are kept in IndexedDB (frontend demo only)
+  storagePath?: string; // Supabase private bucket object path (masked copy only, NFR-02)
+  storageSynced?: boolean;
+  storageError?: string;
 };
 
 export type BatchStatus = "COMPLETE" | "PARTIAL_FAILURE";

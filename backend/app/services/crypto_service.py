@@ -13,6 +13,57 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from app.schemas.auth import SessionUserSchema
 
 JWT_TTL_SECONDS = 60 * 60
+PASSWORD_RESET_TTL_SECONDS = 15 * 60
+
+
+def _get_reset_jwt_secret() -> str:
+    base = _get_jwt_secret()
+    if not base:
+        return ""
+    # Domain-separated signing key so reset tokens and session tokens are never interchangeable.
+    return hashlib.sha256(f"{base}:password-reset-v1".encode("utf-8")).hexdigest()
+
+
+def password_hash_fingerprint(stored_hash: str) -> str:
+    return hashlib.sha256(stored_hash.encode("utf-8")).hexdigest()[:24]
+
+
+def sign_password_reset_token(user_id: str, username: str, stored_password_hash: str) -> str:
+    """Signs a 15-minute single-use password reset token bound to the current password hash."""
+    secret = _get_reset_jwt_secret()
+    if not secret:
+        raise RuntimeError("AUTH_JWT_SECRET is not configured")
+    now = int(time.time())
+    claims = {
+        "purpose": "password_reset",
+        "sub": user_id,
+        "username": username,
+        "pwd_fp": password_hash_fingerprint(stored_password_hash),
+        "iat": now,
+        "exp": now + PASSWORD_RESET_TTL_SECONDS,
+        "jti": str(uuid.uuid4()),
+    }
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def verify_password_reset_token(token: str | None) -> dict[str, str] | None:
+    """Verifies a password reset token's signature, purpose, and expiration."""
+    secret = _get_reset_jwt_secret()
+    if not token or not secret:
+        return None
+    try:
+        claims = jwt.decode(token, secret, algorithms=["HS256"])
+        if claims.get("purpose") != "password_reset":
+            return None
+        if not claims.get("sub") or not claims.get("username") or not claims.get("pwd_fp"):
+            return None
+        return {
+            "user_id": str(claims["sub"]),
+            "username": str(claims["username"]),
+            "pwd_fp": str(claims["pwd_fp"]),
+        }
+    except Exception:
+        return None
 
 
 def _get_aes_key() -> bytes:

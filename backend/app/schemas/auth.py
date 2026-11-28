@@ -58,3 +58,33 @@ class SessionVerifyResponseSchema(BaseModel):
     authenticated: bool
     user: Optional[SessionUserSchema] = None
 
+
+class ForgotPasswordRequestSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: str
+    origin: Optional[str] = None
+
+
+class ForgotPasswordResponseSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    message: str = ""
+    error: Optional[str] = None
+
+
+class ResetPasswordRequestSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    newPassword: str
+
+
+class ResetPasswordResponseSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    message: str = ""
+    error: Optional[str] = None
+

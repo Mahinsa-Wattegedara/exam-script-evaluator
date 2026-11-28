@@ -1,13 +1,16 @@
 "use client";
 // Client-side store for the frontend demo. All data is mock data held in the browser
-// (localStorage + IndexedDB for uploaded files). No backend calls are made.
+// (localStorage + IndexedDB for uploaded files). Approved rubrics use the backend.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { clearBlobs, createMaskedCopy, getBlob } from "./image-utils";
+import { clearBlobs, createMaskedCopy, getBlob, imageToMaskedBase64 } from "./image-utils";
 import { activeVersion, detectPromptInjection, extractAnswer, nowIso, orderedImages, uid, versionText } from "./logic";
 import { buildSeed, DEFAULT_QUESTIONS } from "./seed";
-import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, ScriptImage, SessionUser, State, TextSpan, UploadFailure, UserRole } from "./types";
+import { loadApprovedRubric, saveApprovedRubric, type ApprovedRubric } from "./approved-rubrics";
+import type { ImportedQuestion } from "./marking-scheme-import";
+import type { AnswerRecord, FlagType, ModelAnswerImage, PaperType, Rect, RubricCriterion, RubricVersion, RubricSubquestion, ScriptImage, SessionUser, State, StudentCriterionMark, TextSpan, UploadFailure, UserRole } from "./types";
 
 const KEY = "scriptx-clean-state-v5";
+const PURGE_SYNC_KEY = "scriptx-last-purge-at-v1";
 const ACTOR = "Dr. S. Silva";
 
 const BOILERPLATE_CRITERION_RE =
@@ -25,12 +28,23 @@ export function sanitizeCriterionDescription(description?: string | null): strin
   return BOILERPLATE_CRITERION_RE.test(raw.trim()) ? "" : raw;
 }
 
+export function hasMarkingScheme(state: State): boolean {
+  return state.rubrics.length > 0 || state.assessment.questions.some(question => !isPlaceholderPrompt(question.prompt));
+}
+
+export function questionRemovalBlock(state: State, questionId: string): string | undefined {
+  if (state.regions.some(region => region.questionId === questionId) || state.answers.some(answer => answer.questionId === questionId)) {
+    return "This question is linked to a student script.";
+  }
+}
+
 type Ctx = {
   state: State;
   user: SessionUser | null;
   login: (username: string, password: string, role: UserRole) => Promise<{ ok: boolean; error?: string }>;
   register: (input: {
     username: string;
+    email?: string;
     password: string;
     role: UserRole;
     displayName?: string;
@@ -38,6 +52,7 @@ type Ctx = {
   logout: () => Promise<void>;
   mutate: (fn: (d: State) => void) => void;
   actions: ReturnType<typeof makeActions>;
+  flushPersistence: () => { ok: boolean; error?: string };
 };
 const StoreCtx = createContext<Ctx | null>(null);
 
@@ -45,18 +60,134 @@ function audit(d: State, action: string, detail: string) {
   d.audit.unshift({ id: uid("au"), at: nowIso(), actor: ACTOR, action, detail });
 }
 
+/** 81 words for Objects and classes, Encapsulation, and Inheritance. */
+function feedbackFromCriteria(criteria: StudentCriterionMark[]): string {
+  const awarded = criteria.reduce((sum, row) => sum + row.awarded, 0);
+  const max = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+  const sentences = criteria.map((row) => {
+    if (row.status === "COVERED") {
+      return `Your answer included ${row.description}, and that point was fully covered.`;
+    }
+    if (row.status === "PARTIAL") {
+      return `${row.description} was only partly covered: some of the expected detail is present, but not enough to award the full mark for that point.`;
+    }
+    return `${row.description} was missing, so that point received no marks.`;
+  });
+  const parts = criteria.map((row) => `${row.awarded} out of ${row.maxMark} for ${row.description}`);
+  const breakdown =
+    parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  return `${sentences.join(" ")} The released mark for this question is ${awarded} out of ${max}, which is the sum of ${breakdown}.`;
+}
+
+export function getPartialOptions(criterion: Pick<RubricCriterion, "allowedPartialCredits" | "maxMarks">): number[] {
+  return criterion.allowedPartialCredits
+    .filter((mark) => Number.isFinite(mark) && mark > 0 && mark < criterion.maxMarks)
+    .sort((a, b) => b - a);
+}
+
 function makeActions(mutate: Ctx["mutate"], getState: () => State) {
   const answerById = (d: State, id: string) => d.answers.find((a) => a.id === id)!;
   const code = (d: State, scriptId: string) => d.scripts.find((s) => s.id === scriptId)?.pseudonymousCode ?? "?";
   const qnum = (d: State, qid: string) => d.assessment.questions.find((q) => q.id === qid)?.number ?? qid;
 
+  function receiveApproval(saved: ApprovedRubric, replaceDraft: boolean, images?: ModelAnswerImage[]) {
+    mutate(d => {
+      if (d.assessment.id !== saved.assessmentId) return;
+      const q = d.assessment.questions.find(q => q.id === saved.questionId);
+      if (!q) return;
+      Object.assign(q, { number: saved.question.number, prompt: saved.question.prompt, maxMarks: saved.question.maxMarks });
+      d.rubrics = d.rubrics.filter(r => r.questionId !== saved.questionId || (!r.approved && !replaceDraft) || (r.approved && r.rubricId && r.version !== saved.version));
+      d.rubrics.push({
+        questionId: saved.questionId, rubricId: saved.rubricId, version: saved.version,
+        criteria: saved.question.criteria, subquestions: saved.question.subquestions,
+        modelAnswerText: saved.question.modelAnswerText, modelAnswerImages: images,
+        approved: true, approvedAt: saved.approvedAt, approvedBy: saved.approvedBy,
+      });
+      audit(d, "APPROVE_RUBRIC", `Loaded database-approved rubric v${saved.version} for ${q.number}`);
+    });
+  }
+
   return {
+    loadApprovedRubric: async (questionId: string) => {
+      const saved = await loadApprovedRubric(getState().assessment.id, questionId);
+      receiveApproval(saved, true);
+      return saved;
+    },
+    updateAssessment: (title: string, course: string) =>
+      mutate((d) => {
+        d.assessment.title = title;
+        d.assessment.course = course;
+      }),
+
+    importMarkingScheme: (items: ImportedQuestion[], options?: { replaceDrafts?: boolean; reviewId?: string }) => {
+      const state = getState();
+      if (state.scripts.length || state.answers.length || state.rubrics.some((r) => r.approved)) {
+        return { ok: false, error: "This assessment has uploaded student scripts or approved rubrics. Its questions cannot be replaced by an import." };
+      }
+      if (!options?.replaceDrafts && (state.rubrics.length || state.assessment.questions.some((q) => !isPlaceholderPrompt(q.prompt)))) {
+        return { ok: false, error: "Review and confirm replacing the existing question and rubric drafts to import this scheme." };
+      }
+      if (!items.length) return { ok: false, error: "No questions were found to import." };
+      mutate((d) => {
+        d.assessment.questions = items.map((item) => item.question);
+        d.assessment.rubricReviewId = options?.reviewId;
+        d.rubrics = items.map((item) => ({
+          version: 1,
+          questionId: item.question.id,
+          criteria: item.criteria,
+          subquestions: item.subquestions,
+          modelAnswerText: item.modelAnswerText,
+          approved: false,
+        }));
+        audit(d, "IMPORT_MARKING_SCHEME", `Imported ${items.length} question drafts${options?.replaceDrafts ? "; replaced previous drafts after confirmation" : ""}`);
+      });
+      return { ok: true };
+    },
+
+    resetMarkingScheme: (databaseArchived: boolean) => {
+      const state = getState();
+      if (state.scripts.length || state.answers.length) {
+        return { ok: false, error: "This assessment has uploaded student work." };
+      }
+      if (state.rubrics.some(rubric => rubric.approved && rubric.rubricId) && !databaseArchived) {
+        return { ok: false, error: "Archive the saved rubric versions before resetting the marking scheme." };
+      }
+      mutate(d => {
+        d.assessment.questions = DEFAULT_QUESTIONS.map(question => ({ ...question }));
+        delete d.assessment.rubricReviewId;
+        d.rubrics = [];
+        audit(d, "RESET_MARKING_SCHEME", "Reset the marking scheme for this assessment");
+      });
+      return { ok: true };
+    },
+
     reset: async () => {
       localStorage.removeItem(KEY);
       localStorage.removeItem("m1-enterprise-state-v3");
       localStorage.removeItem("m1-enterprise-state-v2");
       await clearBlobs().catch(() => undefined);
       mutate((d) => Object.assign(d, buildSeed()));
+    },
+
+    clearExamScripts: async (purgedAt?: string) => {
+      await clearBlobs().catch(() => undefined);
+      const stamp = purgedAt || nowIso();
+      try {
+        localStorage.setItem(PURGE_SYNC_KEY, stamp);
+      } catch {
+        // Ignore storage errors
+      }
+      mutate((d) => {
+        d.scripts = [];
+        d.failures = [];
+        d.regions = [];
+        d.answers = [];
+        d.runs = [];
+        d.identityMap = [];
+        d.studentResults = {};
+        d.reviewRequests = [];
+        audit(d, "STORAGE_PURGE", "Cleared all exam scripts, answers, and local files after administrator purge");
+      });
     },
 
     ensureDefaultQuestions: () =>
@@ -69,7 +200,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
 
     addQuestion: () =>
       mutate((d) => {
-        const nextIdx = d.assessment.questions.length + 1;
+        const nextIdx = Math.max(0, ...d.assessment.questions.map((q) => Number(q.number.slice(1)) || 0)) + 1;
         d.assessment.questions.push({
           id: `q${nextIdx}`,
           number: `Q${nextIdx}`,
@@ -87,11 +218,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         }
       }),
 
-    deleteQuestion: (questionId: string) =>
+    deleteQuestion: (questionId: string, databaseArchived = false) => {
+      const state = getState();
+      const question = state.assessment.questions.find(item => item.id === questionId);
+      if (!question) return { ok: false, error: "This question has already been removed." };
+      const error = questionRemovalBlock(state, questionId);
+      if (error) return { ok: false, error };
+      if (state.rubrics.some(rubric => rubric.questionId === questionId && rubric.approved && rubric.rubricId) && !databaseArchived) {
+        return { ok: false, error: "Archive the saved rubric versions before removing this question." };
+      }
       mutate((d) => {
         d.assessment.questions = d.assessment.questions.filter((x) => x.id !== questionId);
         d.rubrics = d.rubrics.filter((r) => r.questionId !== questionId);
-      }),
+        if (!d.assessment.questions.length) delete d.assessment.rubricReviewId;
+        audit(d, "DELETE_QUESTION", `Removed ${question.number} from the marking scheme`);
+      });
+      return { ok: true };
+    },
 
     addModelAnswerImage: (questionId: string, image: ModelAnswerImage) =>
       mutate((d) => {
@@ -126,6 +269,7 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       criteria: RubricCriterion[],
       modelAnswerText?: string,
       modelAnswerImages?: ModelAnswerImage[],
+      subquestions?: RubricSubquestion[],
     ) =>
       mutate((d) => {
         if (!d.rubrics) d.rubrics = [];
@@ -142,16 +286,19 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         r.criteria = criteria;
         if (modelAnswerText !== undefined) r.modelAnswerText = modelAnswerText;
         if (modelAnswerImages !== undefined) r.modelAnswerImages = modelAnswerImages;
+        if (subquestions !== undefined) r.subquestions = subquestions;
       }),
 
-    approveRubric: (
+    approveRubric: async (
       questionId: string,
       criteria: RubricCriterion[],
       modelAnswerText?: string,
       modelAnswerImages?: ModelAnswerImage[],
+      subquestions?: RubricSubquestion[],
     ) => {
       let result: { ok: boolean; error?: string } = { ok: false, error: "" };
-      mutate((d) => {
+      const snapshot = structuredClone(getState());
+      ((d: State) => {
         if (!d.rubrics) d.rubrics = [];
         const q = d.assessment.questions.find((x) => x.id === questionId);
         if (!q) {
@@ -172,6 +319,21 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           };
           return;
         }
+        if (criteria.some((c) => !c.acceptedAlternatives.some((answer) => answer.trim()) ||
+          !c.scoringGuide || c.scoringGuide.length !== c.allowedPartialCredits.length ||
+          new Set(c.scoringGuide.map((entry) => entry.marks)).size !== c.scoringGuide.length ||
+          c.scoringGuide.some((entry) => !c.allowedPartialCredits.includes(entry.marks) || !entry.description.trim()))) {
+          result = { ok: false, error: "Add valid alternative answers and explain every allowed score for each marking point before approval." };
+          return;
+        }
+        if (new Set(criteria.map((c) => c.id)).size !== criteria.length || criteria.some((c) =>
+          !Number.isFinite(c.maxMarks) || c.maxMarks < 0 ||
+          !c.allowedPartialCredits.includes(0) || !c.allowedPartialCredits.includes(c.maxMarks) ||
+          c.allowedPartialCredits.some((mark) => !Number.isFinite(mark) || mark < 0 || mark > c.maxMarks)
+        )) {
+          result = { ok: false, error: "Criterion IDs must be unique and allowed marks must include 0 and the criterion maximum within bounds." };
+          return;
+        }
         // Validate REQ-12: The system shall reject approval when the criterion maxima do not sum to the question maximum
         const sum = Number(criteria.reduce((acc, c) => acc + (Number(c.maxMarks) || 0), 0).toFixed(2));
         const qMax = Number(Number(q.maxMarks).toFixed(2));
@@ -183,32 +345,24 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
           return;
         }
 
-        const approvedVersions = d.rubrics.filter((x) => x.questionId === questionId && x.approved);
-        const nextVer = approvedVersions.length + 1;
-
-        const approvedRubric: RubricVersion = {
-          version: nextVer,
-          questionId,
-          criteria,
-          modelAnswerText,
-          modelAnswerImages,
-          approved: true,
-          approvedAt: nowIso(),
-          approvedBy: ACTOR,
-        };
-
-        // Remove unapproved draft if any
-        d.rubrics = d.rubrics.filter((x) => !(x.questionId === questionId && !x.approved));
-        d.rubrics.push(approvedRubric);
-
-        audit(
-          d,
-          "APPROVE_RUBRIC",
-          `Approved Rubric v${nextVer} for ${q.number} (${criteria.length} criteria, ${q.maxMarks} marks total)`,
-        );
+        if (subquestions?.length && (
+          new Set(subquestions.map(part => part.id)).size !== subquestions.length ||
+          Math.abs(subquestions.reduce((sum, part) => sum + part.maxMarks, 0) - qMax) > 0.001 ||
+          subquestions.some(part => !part.originalAnswer.trim() || !part.prompt.trim() || !Number.isFinite(part.maxMarks) || part.maxMarks <= 0 || Math.abs(criteria.filter(c => c.subquestionId === part.id).reduce((sum,c) => sum + c.maxMarks, 0) - part.maxMarks) > 0.001) ||
+          criteria.some(c => !subquestions.some(part => part.id === c.subquestionId) || !c.sourceExcerpt?.trim())
+        )) { result = {ok:false, error:"Each subquestion needs its original answer and a mark breakdown matching its full marks."}; return; }
         result = { ok: true };
-      });
-      return result;
+      })(snapshot);
+      if (!result.ok) return result;
+      try {
+        const question = snapshot.assessment.questions.find(q => q.id === questionId)!;
+        const expectedVersion = Math.max(0, ...snapshot.rubrics.filter(r => r.questionId === questionId && r.approved && r.rubricId).map(r => r.version));
+        const saved = await saveApprovedRubric(snapshot.assessment, question, criteria, modelAnswerText || "", subquestions || [], expectedVersion);
+        receiveApproval(saved, true, modelAnswerImages);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Approval failed. Load the saved approval before retrying." };
+      }
     },
 
     addUploads: (
@@ -264,14 +418,23 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         s.pagesConfirmed = false;
       }),
 
-    removePage: (scriptId: string, imageId: string) =>
+    removePage: (scriptId: string, imageId: string) => {
+      const targetScript = getState().scripts.find((x) => x.id === scriptId);
+      const targetImg = targetScript?.images.find((i) => i.id === imageId);
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId)!;
         s.images = s.images.filter((i) => i.id !== imageId);
         orderedImages(s).forEach((im, i) => (im.pageNumber = i + 1));
         d.regions = d.regions.filter((r) => r.imageId !== imageId);
         audit(d, "REMOVE_PAGE", `Removed a page from ${s.pseudonymousCode}`);
-      }),
+      });
+      if (targetScript && targetImg?.storageSynced) {
+        fetch(
+          `/api/storage/masked?scriptCode=${encodeURIComponent(targetScript.pseudonymousCode)}&imageId=${encodeURIComponent(imageId)}`,
+          { method: "DELETE" },
+        ).catch(() => undefined);
+      }
+    },
 
     confirmPages: (scriptId: string) =>
       mutate((d) => {
@@ -281,8 +444,10 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       }),
 
     applyMask: async (scriptId: string, imageId: string, rect: Rect) => {
-      const im = getState().scripts.find((s) => s.id === scriptId)?.images.find((i) => i.id === imageId);
-      if (!im) return;
+      const st = getState();
+      const sc = st.scripts.find((s) => s.id === scriptId);
+      const im = sc?.images.find((i) => i.id === imageId);
+      if (!sc || !im) return;
       const maskedUrl = await createMaskedCopy(im.originalUrl, rect);
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId)!;
@@ -290,27 +455,127 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         t.maskRect = rect;
         t.maskedUrl = maskedUrl;
         t.maskStatus = "MASKED";
+        t.storageSynced = false;
+        t.storageError = undefined;
         audit(d, "MASK", `Masked identifying header on ${s.pseudonymousCode} page ${t.pageNumber}`);
       });
+      // Sync ONLY the header-masked copy to Supabase Storage (NFR-02: original stays in browser)
+      const [header, base64Data = ""] = maskedUrl.split(",", 2);
+      const mimeType = header?.includes("image/png") ? "image/png" : "image/jpeg";
+      try {
+        const res = await fetch("/api/storage/masked", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scriptCode: sc.pseudonymousCode,
+            imageId: im.id,
+            assessmentId: st.assessment.id,
+            pageNumber: im.pageNumber,
+            maskStatus: "MASKED",
+            mimeType,
+            base64Data,
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as { ok?: boolean; objectPath?: string; error?: string } | null;
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (!t) return;
+          if (res.ok && data?.ok) {
+            t.storageSynced = true;
+            t.storagePath = data.objectPath;
+            t.storageError = undefined;
+            audit(d, "STORAGE_SYNC", `Saved masked copy of ${sc.pseudonymousCode} page ${t.pageNumber} to Supabase Storage`);
+          } else {
+            t.storageSynced = false;
+            t.storageError = data?.error || `Storage sync failed (${res.status})`;
+          }
+        });
+      } catch {
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (t) {
+            t.storageSynced = false;
+            t.storageError = "Could not reach Supabase storage service.";
+          }
+        });
+      }
     },
 
-    setNoHeader: (scriptId: string, imageId: string) =>
+    setNoHeader: async (scriptId: string, imageId: string) => {
+      const st = getState();
+      const sc = st.scripts.find((s) => s.id === scriptId);
+      const im = sc?.images.find((i) => i.id === imageId);
+      if (!sc || !im) return;
       mutate((d) => {
         const s = d.scripts.find((x) => x.id === scriptId)!;
         const t = s.images.find((i) => i.id === imageId)!;
         t.maskStatus = "NO_HEADER";
         t.maskRect = undefined;
         t.maskedUrl = undefined;
+        t.storageSynced = false;
+        t.storageError = undefined;
         audit(d, "MASK", `Marked ${s.pseudonymousCode} page ${t.pageNumber} as having no identifying header`);
-      }),
+      });
+      if (!im.originalUrl) return;
+      try {
+        const { mimeType, base64Data } = await imageToMaskedBase64({ ...im, maskStatus: "NO_HEADER", maskRect: undefined, maskedUrl: undefined });
+        const res = await fetch("/api/storage/masked", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scriptCode: sc.pseudonymousCode,
+            imageId: im.id,
+            assessmentId: st.assessment.id,
+            pageNumber: im.pageNumber,
+            maskStatus: "NO_HEADER",
+            mimeType: mimeType === "image/png" ? "image/png" : "image/jpeg",
+            base64Data,
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as { ok?: boolean; objectPath?: string; error?: string } | null;
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (!t) return;
+          if (res.ok && data?.ok) {
+            t.storageSynced = true;
+            t.storagePath = data.objectPath;
+            t.storageError = undefined;
+            audit(d, "STORAGE_SYNC", `Saved no-header copy of ${sc.pseudonymousCode} page ${t.pageNumber} to Supabase Storage`);
+          } else {
+            t.storageSynced = false;
+            t.storageError = data?.error || `Storage sync failed (${res.status})`;
+          }
+        });
+      } catch {
+        mutate((d) => {
+          const t = d.scripts.find((x) => x.id === scriptId)?.images.find((i) => i.id === imageId);
+          if (t) {
+            t.storageSynced = false;
+            t.storageError = "Could not reach Supabase storage service.";
+          }
+        });
+      }
+    },
 
-    clearMask: (scriptId: string, imageId: string) =>
+    clearMask: (scriptId: string, imageId: string) => {
+      const sc = getState().scripts.find((x) => x.id === scriptId);
+      const im = sc?.images.find((i) => i.id === imageId);
       mutate((d) => {
         const t = d.scripts.find((x) => x.id === scriptId)!.images.find((i) => i.id === imageId)!;
         t.maskStatus = "PENDING";
         t.maskRect = undefined;
         t.maskedUrl = undefined;
-      }),
+        t.storageSynced = false;
+        t.storagePath = undefined;
+        t.storageError = undefined;
+      });
+      if (sc && im?.storageSynced) {
+        fetch(
+          `/api/storage/masked?scriptCode=${encodeURIComponent(sc.pseudonymousCode)}&imageId=${encodeURIComponent(imageId)}`,
+          { method: "DELETE" },
+        ).catch(() => undefined);
+      }
+    },
 
     addRegion: (scriptId: string, imageId: string, questionId: string, bbox: Rect) =>
       mutate((d) => {
@@ -701,9 +966,20 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
       evidenceSpanIds?: string[],
     ) =>
       mutate((d) => {
+        const id = studentId.trim();
+        if (!id) return;
+        const released = (d.studentResults?.[id] ?? []).some((r) => r.questionId === questionId);
+        if (!released) return;
+        if (
+          d.reviewRequests.some(
+            (r) => r.studentId === id && r.questionId === questionId && r.status === "PENDING_TEACHER_REVIEW",
+          )
+        )
+          return;
+
         d.reviewRequests.unshift({
           id: uid("req"),
-          studentId,
+          studentId: id,
           questionId,
           questionNumber,
           issueType,
@@ -715,9 +991,176 @@ function makeActions(mutate: Ctx["mutate"], getState: () => State) {
         audit(
           d,
           "APPEAL",
-          `Student ${studentId} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
+          `Student ${id} submitted review request for ${questionNumber} (${issueType}) — queued without altering mark (M4-06)`,
         );
       }),
+
+    resolveReviewRequest: (requestId: string, note: string) =>
+      mutate((d) => {
+        const id = requestId.trim();
+        const text = note.trim();
+        if (!id || !text) return;
+        const req = d.reviewRequests.find((r) => r.id === id);
+        if (!req || req.status !== "PENDING_TEACHER_REVIEW") return;
+        req.status = "RESOLVED";
+        req.teacherResolutionNote = text;
+        audit(
+          d,
+          "RESOLVE",
+          `Student ${req.studentId} review for ${req.questionNumber} resolved; mark was not changed`,
+        );
+      }),
+
+    reviseReleasedMark: (studentId: string, awardedMarks: number) => {
+      let result: { ok: true } | { ok: false; error: string } = { ok: false, error: "" };
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) {
+          result = { ok: false, error: "Enter a student ID before updating a released mark." };
+          return;
+        }
+        const q = d.assessment.questions[0];
+        if (!q) {
+          result = { ok: false, error: "Q1 is not configured in this assessment." };
+          return;
+        }
+        const rows = (d.studentResults?.[id] ?? []).filter((r) => r.questionId === q.id);
+        if (!rows.length) {
+          result = { ok: false, error: `No released Q1 result was found for student ${id}.` };
+          return;
+        }
+        const latest = rows.reduce((a, b) => (b.resultVersion > a.resultVersion ? b : a));
+        if (!Number.isFinite(awardedMarks)) {
+          result = { ok: false, error: "Enter a numeric mark to update the released result." };
+          return;
+        }
+        if (awardedMarks < 0) {
+          result = { ok: false, error: "The updated mark cannot be below 0." };
+          return;
+        }
+        if (awardedMarks > latest.maxMarks) {
+          result = { ok: false, error: `The updated mark cannot exceed ${latest.maxMarks}.` };
+          return;
+        }
+        if (!Number.isInteger(awardedMarks)) {
+          result = { ok: false, error: "Enter a whole-number mark." };
+          return;
+        }
+        if (awardedMarks === latest.awardedMarks) {
+          result = { ok: false, error: "The new mark is unchanged from the currently released mark." };
+          return;
+        }
+        const next = structuredClone(latest);
+        next.resultVersion = latest.resultVersion + 1;
+        next.awardedMarks = awardedMarks;
+        next.releasedAt = nowIso();
+        next.feedbackText = `The released mark for this question is now ${awardedMarks} out of ${latest.maxMarks}.`;
+        (d.studentResults![id] ??= []).push(next);
+        audit(
+          d,
+          "MARK_REVISED",
+          `Student ${id} ${latest.questionNumber}: mark ${latest.awardedMarks} → ${awardedMarks}, resultVersion ${next.resultVersion}`,
+        );
+        result = { ok: true };
+      });
+      return result;
+    },
+
+    releaseResult: (
+      studentId: string,
+      statuses: Record<string, "" | "COVERED" | "PARTIAL" | "MISSING">,
+      partialMarks: Record<string, number | undefined>,
+    ) => {
+      let result: { ok: true } | { ok: false; error: string } = { ok: false, error: "" };
+      mutate((d) => {
+        const id = studentId.trim();
+        if (!id) {
+          result = { ok: false, error: "Enter a student ID before releasing Q1." };
+          return;
+        }
+        const q = d.assessment.questions[0];
+        if (!q) {
+          result = { ok: false, error: "Q1 is not configured in this assessment." };
+          return;
+        }
+        if ((d.studentResults?.[id] ?? []).some((r) => r.questionId === q.id)) {
+          result = { ok: false, error: `Q1 has already been released to ${id}. Use Update released mark to change the result.` };
+          return;
+        }
+
+        const rubric = d.rubrics
+          .filter((r) => r.questionId === q.id && r.approved)
+          .sort((a, b) => b.version - a.version)[0];
+        if (!rubric) {
+          result = { ok: false, error: "Approve a Q1 marking scheme before releasing results." };
+          return;
+        }
+        if (!rubric.criteria.length) {
+          result = { ok: false, error: "The approved Q1 marking scheme has no criteria to release." };
+          return;
+        }
+
+        const criteria: StudentCriterionMark[] = [];
+        for (const rc of rubric.criteria) {
+          const status = statuses?.[rc.id];
+          if (status !== "COVERED" && status !== "PARTIAL" && status !== "MISSING") {
+            result = { ok: false, error: `Choose Covered, Partial, or Missing for criterion ${rc.id}.` };
+            return;
+          }
+
+          let awarded: number;
+          if (status === "COVERED") {
+            awarded = rc.maxMarks;
+          } else if (status === "MISSING") {
+            awarded = 0;
+          } else {
+            const partialOptions = getPartialOptions(rc);
+            if (!partialOptions.length) {
+              result = { ok: false, error: `Criterion ${rc.id} has no partial mark in the approved scheme. Choose Covered or Missing.` };
+              return;
+            }
+            const selectedPartialMark = partialMarks?.[rc.id];
+            if (selectedPartialMark === undefined) {
+              result = { ok: false, error: `Choose a partial mark for criterion ${rc.id}.` };
+              return;
+            }
+            if (!partialOptions.includes(selectedPartialMark)) {
+              result = { ok: false, error: `The selected partial mark for criterion ${rc.id} is not allowed by the approved scheme.` };
+              return;
+            }
+            awarded = selectedPartialMark;
+          }
+
+          criteria.push({
+            criterionId: rc.id,
+            description: rc.description,
+            awarded,
+            maxMark: rc.maxMarks,
+            status,
+          });
+        }
+
+        if (!d.studentResults) d.studentResults = {};
+        const awardedMarks = criteria.reduce((sum, row) => sum + row.awarded, 0);
+        const maxMarks = criteria.reduce((sum, row) => sum + row.maxMark, 0);
+        (d.studentResults[id] ??= []).push({
+          questionId: q.id,
+          questionNumber: q.number,
+          questionPrompt: q.prompt,
+          maxMarks,
+          awardedMarks,
+          resultVersion: 1,
+          releasedAt: nowIso(),
+          transcriptVersion: 1,
+          approvedTranscript: "",
+          feedbackText: feedbackFromCriteria(criteria),
+          criteria,
+        });
+        audit(d, "RELEASE", `Released Q1 to student ${id}`);
+        result = { ok: true };
+      });
+      return result;
+    },
   };
 }
 
@@ -730,6 +1173,8 @@ function serialise(s: State): string {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>(() => buildSeed());
+  const [ready, setReady] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const ref = useRef<State>(state);
   ref.current = state;
@@ -758,6 +1203,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(
     async (input: {
       username: string;
+      email?: string;
       password: string;
       role: UserRole;
       displayName?: string;
@@ -787,12 +1233,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       let s: State;
       try {
         localStorage.removeItem("m1-enterprise-state-v3");
         localStorage.removeItem("m1-enterprise-state-v2");
-        await clearBlobs().catch(() => undefined);
         const raw = localStorage.getItem(KEY);
         s = raw ? (JSON.parse(raw) as State) : buildSeed();
         if (!s.rubrics) {
@@ -810,7 +1256,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 },
           );
         }
-        if (!s.assessment.questions || s.assessment.questions.length === 0) {
+        if (!s.assessment.questions) {
           s.assessment.questions = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
         } else {
           s.assessment.questions = s.assessment.questions.map((q) => ({
@@ -823,6 +1269,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {
         s = buildSeed();
+      }
+      // Check if an administrator purged exam storage since this browser last synced
+      try {
+        const pRes = await fetch("/api/storage/purge-status", { cache: "no-store" });
+        if (pRes.ok) {
+          const pData = (await pRes.json()) as { ok?: boolean; lastPurgeAt?: string | null };
+          const serverPurgeAt = pData.lastPurgeAt;
+          if (serverPurgeAt) {
+            const purgeMs = Date.parse(serverPurgeAt);
+            const localPurgeAt = localStorage.getItem(PURGE_SYNC_KEY);
+            const localMs = localPurgeAt ? Date.parse(localPurgeAt) : 0;
+            const hasStaleScripts =
+              Number.isFinite(purgeMs) &&
+              s.scripts.some((sc) => {
+                const upMs = Date.parse(sc.uploadedAt);
+                return !Number.isFinite(upMs) || upMs <= purgeMs;
+              });
+            if ((Number.isFinite(purgeMs) && purgeMs > localMs) || hasStaleScripts) {
+              await clearBlobs().catch(() => undefined);
+              s.scripts = [];
+              s.failures = [];
+              s.regions = [];
+              s.answers = [];
+              s.runs = [];
+              s.identityMap = [];
+              s.studentResults = {};
+              s.reviewRequests = [];
+              try {
+                localStorage.setItem(PURGE_SYNC_KEY, serverPurgeAt);
+              } catch {
+                // Ignore
+              }
+            }
+          }
+        }
+      } catch {
+        // Offline or backend unavailable
       }
       for (const sc of s.scripts) {
         for (const im of sc.images) {
@@ -849,34 +1332,88 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Not signed in
       }
+      if (cancelled) return;
+      ref.current = s;
       setState(s);
+      setReady(true);
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const flushPersistence = useCallback(() => {
+    try {
+      localStorage.setItem(KEY, serialise(ref.current));
+      setStorageError(null);
+      return { ok: true };
+    } catch {
+      const error = "Changes could not be saved in this browser. Browser storage may be full or disabled. Keep this page open and reduce large reference attachments or enable site storage before retrying.";
+      setStorageError(error);
+      return { ok: false, error };
+    }
   }, []);
 
   useEffect(() => {
-    if (!state) return;
-    try {
-      localStorage.setItem(KEY, serialise(state));
-    } catch {
-      /* quota exceeded - demo keeps working in memory */
+    if (!ready) return;
+    flushPersistence();
+  }, [state, ready, flushPersistence]);
+
+  // Sync admin storage purges across tabs & when returning to an already-open tab
+  useEffect(() => {
+    if (!ready || typeof window === "undefined" || typeof document === "undefined") return;
+    async function checkRemotePurge() {
+      try {
+        const res = await fetch("/api/storage/purge-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { ok?: boolean; lastPurgeAt?: string | null };
+        const serverPurgeAt = data.lastPurgeAt;
+        if (!serverPurgeAt) return;
+        const purgeMs = Date.parse(serverPurgeAt);
+        if (!Number.isFinite(purgeMs)) return;
+        const localPurgeAt = localStorage.getItem(PURGE_SYNC_KEY);
+        const localMs = localPurgeAt ? Date.parse(localPurgeAt) : 0;
+        const hasStaleScripts = ref.current.scripts.some((sc) => {
+          const upMs = Date.parse(sc.uploadedAt);
+          return !Number.isFinite(upMs) || upMs <= purgeMs;
+        });
+        if (purgeMs > localMs || hasStaleScripts) {
+          await actionsRef.current?.clearExamScripts(serverPurgeAt);
+        }
+      } catch {
+        // Ignore offline checks
+      }
     }
-  }, [state]);
+    function onStorage(e: StorageEvent) {
+      if (e.key === PURGE_SYNC_KEY && e.newValue) {
+        actionsRef.current?.clearExamScripts(e.newValue);
+      }
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        checkRemotePurge();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ready]);
 
   const mutate = useCallback((fn: (d: State) => void) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const d = structuredClone(prev);
-      fn(d);
-      return d;
-    });
+    const d = structuredClone(ref.current);
+    fn(d);
+    ref.current = d;
+    setState(d);
   }, []);
 
   const actionsRef = useRef<ReturnType<typeof makeActions> | null>(null);
   if (!actionsRef.current) actionsRef.current = makeActions(mutate, () => ref.current);
 
   return (
-    <StoreCtx.Provider value={{ state, user, login, register, logout, mutate, actions: actionsRef.current }}>
-      {children}
+    <StoreCtx.Provider value={{ state, user, login, register, logout, mutate, actions: actionsRef.current, flushPersistence }}>
+      {storageError && <div role="alert" className="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-800">{storageError}</div>}
+      {ready ? children : <div role="status" className="p-8 text-center text-sm text-slate-500">Loading saved assessment…</div>}
     </StoreCtx.Provider>
   );
 }

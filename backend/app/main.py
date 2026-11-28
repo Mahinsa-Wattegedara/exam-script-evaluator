@@ -4,18 +4,23 @@ Aligned with SRS Section 4.3 & 4.4 (ExternalInterfaces.docx):
 - Python 3.12+
 - FastAPI 0.162.0
 - Pydantic v2 (extra="forbid")
-- LangGraph 1.2.0
+- LangGraph 1.2.24 / SDK 0.4.14
 """
 import os
 from pathlib import Path
+from uuid import UUID
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.schemas.auth import (
     AuthResponseSchema,
+    ForgotPasswordRequestSchema,
+    ForgotPasswordResponseSchema,
     LoginRequestSchema,
     RegisterRequestSchema,
+    ResetPasswordRequestSchema,
+    ResetPasswordResponseSchema,
     SessionVerifyRequestSchema,
     SessionVerifyResponseSchema,
 )
@@ -24,9 +29,18 @@ from app.schemas.module1 import (
     StructuredOcrRequest,
     StructuredOcrResponse,
 )
+from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
+from app.services.rubric_agent import create_rubric_draft
+from app.services.rubric_review import RubricReviewCheck, RubricReviewStatus, review_configured, review_progress, start_review
 from app.services.crypto_service import verify_session_jwt
-from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
-from app.routes.approved_rubrics import router as approved_rubrics_router
+from app.services.supabase_auth import (
+    authenticate_with_supabase,
+    complete_password_reset,
+    register_user_in_supabase,
+    request_password_reset,
+)
+from app.routes.approved_rubrics import Repository, Teacher, bearer, require_teacher, router as approved_rubrics_router
+from app.routes.script_storage import router as script_storage_router
 
 # Load environment variables from backend/.env or frontend/.env
 backend_env = Path(__file__).resolve().parent.parent / ".env"
@@ -50,6 +64,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(approved_rubrics_router)
+app.include_router(script_storage_router)
+
+
+@app.post("/api/v1/module2/rubric/draft-from-script", response_model=RubricDraftResponse)
+async def draft_rubric_from_script(payload: RubricDraftRequest, request: Request) -> RubricDraftResponse:
+    if not payload.pages and not payload.text.strip():
+        raise HTTPException(status_code=422, detail="Upload PDF pages or provide document text.")
+    owner = require_teacher(await bearer(request)) if review_configured() else None
+    if owner and not payload.assessmentId:
+        raise HTTPException(422, "An assessment ID is required for rubric review.")
+    try:
+        draft = await create_rubric_draft(payload)
+        if owner and payload.assessmentId:
+            draft.reviewId = await start_review(owner.username, payload.assessmentId, [q.number.lower() for q in draft.questions])
+        return draft
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Rubric draft generation failed: {type(exc).__name__}") from exc
+
+
+@app.post("/api/v1/module2/rubric/reviews/{review_id}/check", response_model=RubricReviewStatus)
+async def check_rubric_review(
+    review_id: UUID, teacher: Teacher, repo: Repository, payload: RubricReviewCheck | None = None
+) -> RubricReviewStatus:
+    return await review_progress(str(review_id), teacher.username, repo, payload.removeQuestionId if payload else None)
 
 
 @app.get("/health")
@@ -151,6 +193,12 @@ async def login_endpoint(payload: LoginRequestSchema) -> JSONResponse:
 
 @app.post("/api/v1/auth/register", response_model=AuthResponseSchema)
 async def register_endpoint(payload: RegisterRequestSchema) -> JSONResponse:
+    if payload.role == "ADMIN":
+        body = AuthResponseSchema(
+            ok=False,
+            error="Administrator accounts cannot be self-registered. Contact a system administrator.",
+        )
+        return JSONResponse(status_code=403, content=body.model_dump())
     ok, user, token, error = await register_user_in_supabase(payload)
     if not ok or not user or not token:
         body = AuthResponseSchema(ok=False, error=error or "Could not create user.")
@@ -165,4 +213,24 @@ async def verify_session_endpoint(payload: SessionVerifyRequestSchema) -> Sessio
     if not user:
         return SessionVerifyResponseSchema(authenticated=False, user=None)
     return SessionVerifyResponseSchema(authenticated=True, user=user)
+
+
+@app.post("/api/v1/auth/forgot-password", response_model=ForgotPasswordResponseSchema)
+async def forgot_password_endpoint(payload: ForgotPasswordRequestSchema) -> JSONResponse:
+    ok, message, error = await request_password_reset(payload.identifier, payload.origin)
+    if not ok:
+        body = ForgotPasswordResponseSchema(ok=False, error=error or "Could not process password reset request.")
+        return JSONResponse(status_code=400, content=body.model_dump())
+    body = ForgotPasswordResponseSchema(ok=True, message=message)
+    return JSONResponse(status_code=200, content=body.model_dump())
+
+
+@app.post("/api/v1/auth/reset-password", response_model=ResetPasswordResponseSchema)
+async def reset_password_endpoint(payload: ResetPasswordRequestSchema) -> JSONResponse:
+    ok, message, error = await complete_password_reset(payload.token, payload.newPassword)
+    if not ok:
+        body = ResetPasswordResponseSchema(ok=False, error=error or "Could not reset password.")
+        return JSONResponse(status_code=400, content=body.model_dump())
+    body = ResetPasswordResponseSchema(ok=True, message=message)
+    return JSONResponse(status_code=200, content=body.model_dump())
 

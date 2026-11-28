@@ -10,8 +10,17 @@ from app.services.crypto_service import (
     decrypt_aes256,
     encrypt_aes256,
     hash_password,
+    password_hash_fingerprint,
+    sign_password_reset_token,
     sign_session_jwt,
     verify_password,
+    verify_password_reset_token,
+)
+from app.services.email_service import resolve_reset_base_url, send_password_reset_email
+
+PROTECTED_DEMO_USERNAMES = {"dr.silva", "245001k", "admin"}
+GENERIC_RESET_MESSAGE = (
+    "If an active account matches that email or username, a 15-minute password reset link has been sent."
 )
 
 
@@ -247,4 +256,143 @@ async def register_user_in_supabase(
     )
     token = sign_session_jwt(user)
     return True, user, token, None
+
+
+async def request_password_reset(
+    identifier: str,
+    client_origin: str | None = None,
+) -> tuple[bool, str, str | None]:
+    """
+    Generates a 15-minute single-use reset link and emails it to the user's registered email.
+    Protects built-in demo accounts and avoids account enumeration.
+    Returns (ok, message, error).
+    """
+    cfg = _get_supabase_config()
+    if not cfg:
+        return False, "", "Supabase is not configured on the backend."
+
+    clean_id = identifier.strip().lower()
+    if not clean_id:
+        return False, "", "Please enter your registered email address or username."
+
+    if clean_id in PROTECTED_DEMO_USERNAMES or clean_id in {f"{u}@uom.lk" for u in PROTECTED_DEMO_USERNAMES}:
+        return (
+            False,
+            "",
+            "Built-in demonstration accounts (dr.silva, 245001K, admin) have fixed credentials so live demos remain consistent. Register a personal account with your email to use password recovery.",
+        )
+
+    base_url, api_key = cfg
+    encoded_id = quote(clean_id, safe="")
+    query_url = (
+        f"{base_url}/rest/v1/app_users"
+        f"?or=(username.ilike.{encoded_id},email.ilike.{encoded_id})&is_active=eq.true&select=user_id,username,email,display_name,password_hash"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.get(
+                query_url,
+                headers={"apikey": api_key, "Authorization": f"Bearer {api_key}"},
+            )
+    except Exception:
+        return False, "", "Could not reach authentication database."
+
+    if res.status_code >= 400:
+        return False, "", "Authentication database lookup failed."
+
+    rows = res.json()
+    if not isinstance(rows, list) or not rows:
+        return True, GENERIC_RESET_MESSAGE, None
+
+    row = rows[0]
+    username = str(row.get("username") or "")
+    if username.lower() in PROTECTED_DEMO_USERNAMES:
+        return (
+            False,
+            "",
+            "Built-in demonstration accounts have fixed credentials. Register a personal account with your email to use password recovery.",
+        )
+
+    to_email = str(row.get("email") or "").strip()
+    if not to_email or "@" not in to_email:
+        return True, GENERIC_RESET_MESSAGE, None
+
+    try:
+        token = sign_password_reset_token(
+            user_id=str(row["user_id"]),
+            username=username,
+            stored_password_hash=str(row.get("password_hash") or ""),
+        )
+    except RuntimeError as exc:
+        return False, "", str(exc)
+
+    origin = resolve_reset_base_url(client_origin)
+    reset_url = f"{origin}/reset-password?token={quote(token, safe='')}"
+    sent, err = await send_password_reset_email(
+        to_email=to_email,
+        display_name=str(row.get("display_name") or username),
+        reset_url=reset_url,
+    )
+    if not sent:
+        return False, "", err or "Could not send password recovery email."
+
+    return True, GENERIC_RESET_MESSAGE, None
+
+
+async def complete_password_reset(token: str, new_password: str) -> tuple[bool, str, str | None]:
+    """
+    Verifies the 15-minute single-use token (including password-hash fingerprint)
+    and updates password_hash in public.app_users.
+    """
+    if len(new_password) < 8:
+        return False, "", "New password must be at least 8 characters long."
+
+    claims = verify_password_reset_token(token.strip())
+    if not claims:
+        return False, "", "This password reset link is invalid or has expired. Please request a new link."
+
+    if claims["username"].lower() in PROTECTED_DEMO_USERNAMES:
+        return False, "", "Built-in demonstration account passwords cannot be modified."
+
+    cfg = _get_supabase_config()
+    if not cfg:
+        return False, "", "Supabase is not configured on the backend."
+    base_url, api_key = cfg
+
+    user_id_enc = quote(claims["user_id"], safe="")
+    headers = {
+        "apikey": api_key,
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            lookup = await client.get(
+                f"{base_url}/rest/v1/app_users?user_id=eq.{user_id_enc}&is_active=eq.true&select=user_id,username,password_hash",
+                headers=headers,
+            )
+            if lookup.status_code >= 400:
+                return False, "", "Could not verify account status."
+            rows = lookup.json()
+            if not isinstance(rows, list) or not rows:
+                return False, "", "This password reset link is invalid or has expired."
+
+            current_hash = str(rows[0].get("password_hash") or "")
+            if password_hash_fingerprint(current_hash) != claims["pwd_fp"]:
+                return False, "", "This password reset link has already been used. Please request a new link if needed."
+
+            updated_hash = hash_password(new_password)
+            patch_res = await client.patch(
+                f"{base_url}/rest/v1/app_users?user_id=eq.{user_id_enc}",
+                headers={**headers, "Prefer": "return=representation"},
+                json={"password_hash": updated_hash},
+            )
+            if patch_res.status_code >= 400:
+                return False, "", "Could not update password in database."
+    except Exception:
+        return False, "", "Could not reach authentication database."
+
+    return True, "Your password has been updated. You can now log in with your new password.", None
 
