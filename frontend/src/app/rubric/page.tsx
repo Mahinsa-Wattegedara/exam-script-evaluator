@@ -870,7 +870,7 @@ function RubricContent() {
               <div className="mt-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
-                  <h3 className="font-['Plus_Jakarta_Sans'] text-base font-semibold text-[color:var(--x-ink,#111827)]">
+                  <h3 className="font-heading text-base font-semibold text-[color:var(--x-ink,#111827)]">
                     Expected answer
                   </h3>
                   <p className="text-xs text-[color:var(--x-secondary,#4b5563)]">

@@ -143,13 +143,17 @@ export function Modal({
   maxWidth?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", k);
-    ref.current?.querySelector<HTMLElement>("textarea,input,button")?.focus();
+    if (ref.current && !ref.current.contains(document.activeElement)) {
+      ref.current.querySelector<HTMLElement>("textarea,input")?.focus();
+    }
     return () => window.removeEventListener("keydown", k);
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-label={title}>

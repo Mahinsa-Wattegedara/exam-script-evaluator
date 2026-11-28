@@ -201,6 +201,10 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const notifSig = notifications.map((n) => n.id).join("|");
   const hasUnread = notifications.length > 0 && readSig !== notifSig;
 
+  if (path === "/reset-password") {
+    return <>{children}</>;
+  }
+
   if (!user) {
     if (path === "/login" || searchParams.get("view") === "login") {
       return <LoginView onBack={() => router.push("/")} onSuccess={() => router.push("/")} />;

@@ -15,12 +15,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.schemas.auth import (
     AuthResponseSchema,
+    ForgotPasswordRequestSchema,
+    ForgotPasswordResponseSchema,
     LoginRequestSchema,
     RegisterRequestSchema,
+    ResetPasswordRequestSchema,
+    ResetPasswordResponseSchema,
     SessionVerifyRequestSchema,
     SessionVerifyResponseSchema,
 )
 from app.schemas.module1 import (
+    AnswerReadySchema,
     StructuredOcrRequest,
     StructuredOcrResponse,
 )
@@ -28,8 +33,14 @@ from app.schemas.module2 import RubricDraftRequest, RubricDraftResponse
 from app.services.rubric_agent import create_rubric_draft
 from app.services.rubric_review import RubricReviewCheck, RubricReviewStatus, review_configured, review_progress, start_review
 from app.services.crypto_service import verify_session_jwt
-from app.services.supabase_auth import authenticate_with_supabase, register_user_in_supabase
+from app.services.supabase_auth import (
+    authenticate_with_supabase,
+    complete_password_reset,
+    register_user_in_supabase,
+    request_password_reset,
+)
 from app.routes.approved_rubrics import Repository, Teacher, bearer, require_teacher, router as approved_rubrics_router
+from app.routes.script_storage import router as script_storage_router
 
 # Load environment variables from backend/.env or frontend/.env
 backend_env = Path(__file__).resolve().parent.parent / ".env"
@@ -53,6 +64,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(approved_rubrics_router)
+app.include_router(script_storage_router)
 
 
 @app.post("/api/v1/module2/rubric/draft-from-script", response_model=RubricDraftResponse)
@@ -89,6 +101,47 @@ async def health_check() -> dict[str, str]:
         "service": "exam-script-evaluator-backend",
         "fastapi_version": "0.162.0",
         "module": "Module 1 - Script Intake and Answer Evidence",
+    }
+
+
+@app.post("/api/v1/module1/contract/validate")
+async def validate_answer_ready_contract(payload: AnswerReadySchema) -> dict[str, object]:
+    from fastapi import HTTPException
+
+    if payload.approval_status != "APPROVED":
+        raise HTTPException(
+            status_code=422,
+            detail="Module 2 boundary rejected AnswerReady: approval_status must be 'APPROVED'.",
+        )
+    if payload.routing_status != "READY_FOR_AI":
+        raise HTTPException(
+            status_code=422,
+            detail="Module 2 boundary rejected AnswerReady: routing_status must be 'READY_FOR_AI'.",
+        )
+    if (
+        not payload.delimited_text
+        or not payload.delimited_text.startswith("<student_answer_transcript>")
+        or not payload.delimited_text.endswith("</student_answer_transcript>")
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="NFR-04 guardrail violation: delimited_text must be wrapped in <student_answer_transcript> XML delimiters.",
+        )
+    inner = payload.delimited_text.removeprefix("<student_answer_transcript>").removesuffix("</student_answer_transcript>")
+    if "<student_answer_transcript>" in inner or "</student_answer_transcript>" in inner:
+        raise HTTPException(
+            status_code=422,
+            detail="OWASP ASI01 guardrail violation: unescaped delimiter tag found inside student_answer_transcript.",
+        )
+    return {
+        "ok": True,
+        "contract": payload.contract,
+        "schema_version": payload.schema_version,
+        "pseudonymous_script_code": payload.pseudonymous_script_code,
+        "question_id": payload.question_id,
+        "transcript_version": payload.transcript_version,
+        "span_count": len(payload.evidence),
+        "validated": payload.model_dump(),
     }
 
 
@@ -140,6 +193,12 @@ async def login_endpoint(payload: LoginRequestSchema) -> JSONResponse:
 
 @app.post("/api/v1/auth/register", response_model=AuthResponseSchema)
 async def register_endpoint(payload: RegisterRequestSchema) -> JSONResponse:
+    if payload.role == "ADMIN":
+        body = AuthResponseSchema(
+            ok=False,
+            error="Administrator accounts cannot be self-registered. Contact a system administrator.",
+        )
+        return JSONResponse(status_code=403, content=body.model_dump())
     ok, user, token, error = await register_user_in_supabase(payload)
     if not ok or not user or not token:
         body = AuthResponseSchema(ok=False, error=error or "Could not create user.")
@@ -154,4 +213,24 @@ async def verify_session_endpoint(payload: SessionVerifyRequestSchema) -> Sessio
     if not user:
         return SessionVerifyResponseSchema(authenticated=False, user=None)
     return SessionVerifyResponseSchema(authenticated=True, user=user)
+
+
+@app.post("/api/v1/auth/forgot-password", response_model=ForgotPasswordResponseSchema)
+async def forgot_password_endpoint(payload: ForgotPasswordRequestSchema) -> JSONResponse:
+    ok, message, error = await request_password_reset(payload.identifier, payload.origin)
+    if not ok:
+        body = ForgotPasswordResponseSchema(ok=False, error=error or "Could not process password reset request.")
+        return JSONResponse(status_code=400, content=body.model_dump())
+    body = ForgotPasswordResponseSchema(ok=True, message=message)
+    return JSONResponse(status_code=200, content=body.model_dump())
+
+
+@app.post("/api/v1/auth/reset-password", response_model=ResetPasswordResponseSchema)
+async def reset_password_endpoint(payload: ResetPasswordRequestSchema) -> JSONResponse:
+    ok, message, error = await complete_password_reset(payload.token, payload.newPassword)
+    if not ok:
+        body = ResetPasswordResponseSchema(ok=False, error=error or "Could not reset password.")
+        return JSONResponse(status_code=400, content=body.model_dump())
+    body = ResetPasswordResponseSchema(ok=True, message=message)
+    return JSONResponse(status_code=200, content=body.model_dump())
 
